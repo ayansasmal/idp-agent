@@ -1,5 +1,5 @@
 import { AICore } from '@/ai/AICore';
-import { ModuleCommunicationLayer } from '@/modules/base/ModuleCommunication';
+import { ModuleCommunicationLayer } from '../modules/ModuleCompat';
 import { 
   AgentResponse,
   RequestContext,
@@ -48,6 +48,10 @@ export class PrimaryAgent {
       if (!Object.values(providerValidation).some(valid => valid)) {
         throw new Error('No valid AI providers available');
       }
+
+      // Initialize module communication layer
+      await this.communication.initialize();
+      this.logger.info('Module communication layer initialized');
 
       // Validate configuration
       const configValidation = config.validate();
@@ -364,16 +368,13 @@ export class PrimaryAgent {
    * Determine which module should handle a specific action
    */
   private getModuleForAction(action: string): string {
-    const actionModuleMap: Record<string, string> = {
-      deploy: 'kubernetes',
-      scale: 'kubernetes',
-      status: 'kubernetes',
-      logs: 'kubernetes',
-      delete: 'kubernetes',
-      rollback: 'kubernetes',
-    };
-
-    return actionModuleMap[action] || 'kubernetes';
+    try {
+      return this.communication.getModuleForAction(action);
+    } catch (error) {
+      // Fallback to kubernetes for unknown actions
+      this.logger.warn('Unknown action, defaulting to kubernetes module', { action, error });
+      return 'kubernetes';
+    }
   }
 
   /**

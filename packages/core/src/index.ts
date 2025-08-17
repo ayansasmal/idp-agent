@@ -18,7 +18,14 @@ export { AnthropicProvider } from './ai/providers/AnthropicProvider';
 // Module System Exports
 // ============================================================================
 export { BaseModule } from './modules/base/BaseModule';
-export { ModuleCommunicationLayer, moduleRegistry } from './modules/base/ModuleCommunication';
+export { ModuleRegistry } from './modules/ModuleRegistry';
+export { ModuleCommunicationLayer } from './modules/ModuleCompat';
+
+// Export individual modules
+export { KubernetesModule } from './modules/kubernetes/KubernetesModule';
+export { SafetyModule } from './modules/safety/SafetyModule';
+export { ApprovalModule } from './modules/approval/ApprovalModule';
+export { AuditModule } from './modules/audit/AuditModule';
 
 // ============================================================================
 // Shared Utilities Exports
