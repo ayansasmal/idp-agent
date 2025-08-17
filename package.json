@@ -1,7 +1,7 @@
 {
   "name": "ai-idp-modular",
-  "version": "1.0.0",
-  "description": "AI-Powered Integrated Developer Platform with Next.js Web Application and Human Approval Workflow",
+  "version": "2.0.0",
+  "description": "AI-Powered Integrated Developer Platform with Real Agent Integration, Next.js Web Application, and Human Approval Workflow",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm run dev:web",
     "dev:web": "npm run dev --workspace=packages/web-app",
+    "dev:web-standalone": "npm run dev:standalone --workspace=packages/web-app",
     "dev:core": "npm run dev --workspace=packages/core",
     "dev:slack": "npm run dev --workspace=packages/slack-app",
     "dev:cli": "npm run dev --workspace=packages/cli",
@@ -25,7 +26,8 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "extract-agent": "node tools/agent-extractor/cli/extract-agent.js",
-    "deploy": "npm run build && npm run start"
+    "deploy": "npm run build && npm run start",
+    "health": "curl -f http://localhost:3002/api/agent || echo 'Server not running. Start with: npm run dev'"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -48,7 +50,12 @@
     "kubernetes", 
     "devops",
     "anthropic",
-    "conversational-ai"
+    "conversational-ai",
+    "claude",
+    "agent-integration",
+    "real-agent",
+    "modular-architecture",
+    "safety-validation"
   ],
   "author": "Platform Engineering Team",
   "license": "MIT"

@@ -41,7 +41,7 @@ docker-compose up -d
 npx prisma migrate dev
 npx prisma generate
 
-# Start development
+# Start development (web app with integrated core agent)
 npm run dev
 ```
 
@@ -148,7 +148,11 @@ npm run type-check       # TypeScript validation
 
 # Root Level
 npm install              # Install all dependencies
+npm run dev              # Start web app with integrated core agent
+npm run dev:web          # Start web app with integrated core agent (same as above)
+npm run dev:web-standalone # Start web app standalone (embedded agent)
 npm run build            # Build all packages
+npm run health           # Check agent health status
 ```
 
 ### Environment Variables
