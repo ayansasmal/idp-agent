@@ -60,7 +60,7 @@ open http://localhost:3002
 # - "Show me production service status"
 ```
 
-**Note**: The web application includes a **mock agent** for demonstration. The core agent (packages/core) is separate and designed for future integration.
+**Note**: The web application now includes the **real PrimaryAgent** from the core package. Full integration is complete and operational.
 
 ## ✅ Phase 2 Complete - Major Achievements
 
@@ -260,10 +260,13 @@ curl -X PATCH "http://localhost:3002/api/approvals?id=APR-123" \
 
 ### Local Development
 ```bash
-# Start the web application
+# Start the web application with real core agent
 cd packages/web-app
 npm install
-npm run dev              # Starts on http://localhost:3002
+npm run dev              # Starts core agent + web app on http://localhost:3002
+
+# OR start standalone (embedded agent)
+npm run dev:standalone   # Web app with embedded core agent
 
 # Environment setup (optional)
 cp .env.example .env.local

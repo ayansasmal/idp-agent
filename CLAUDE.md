@@ -229,22 +229,21 @@ interface PlatformAction {
 ### ✅ API Integration (`/api/`)
 - **Agent Endpoint** (`/api/agent`): Chat with AI agent, automatic approval creation
 - **Approvals Endpoint** (`/api/approvals`): Full CRUD operations for approvals
-- **Mock Agent**: Production-ready mock implementation for testing
+- **Real Agent Integration**: Full PrimaryAgent integration with all modules
 
 ### Usage
 ```bash
-# Start Web Application (includes mock agent)
+# Start Web Application (includes real core agent)
 cd packages/web-app
-npm run dev  # Starts on http://localhost:3002
+npm run dev  # Starts both core agent and web app on http://localhost:3002
 
-# OR start Core Agent separately (advanced)
-cd packages/core
-npm run dev  # Core agent with full module system
+# OR start standalone (web app only with embedded agent)
+npm run dev:standalone  # Web app with embedded core agent
 ```
 
-**Architecture Note**: The web application currently runs with a **built-in mock agent** for demonstration. The core agent package is separate and designed for future integration.
+**Architecture Note**: The web application now runs with the **real PrimaryAgent from the core package**. Full integration is complete and operational.
 
-**Status**: ✅ **Production Ready** - Complete approval workflow with chat interface
+**Status**: ✅ **Production Ready** - Complete approval workflow with real AI agent integration
 
 ## Implementation Phases
 

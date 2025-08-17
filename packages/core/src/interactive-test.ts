@@ -42,7 +42,7 @@ async function interactiveTest() {
     logger.info(`\n--- Testing: "${command}" ---`);
     
     try {
-      const response = await agent.process(command, context);
+      const response = await agent.processRequest(command, context);
       
       logger.info(`✅ Success: ${response.success}`);
       logger.info(`📝 Message: ${response.message}`);

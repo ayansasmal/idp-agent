@@ -36,16 +36,18 @@ export class Logger {
     
     if (isDev) {
       try {
+        // For development, try to use pino-pretty if available
         loggerConfig = {
           ...baseConfig,
-          transport: {
-            target: 'pino-pretty',
-            options: {
-              colorize: true,
-              translateTime: 'SYS:standard',
-              ignore: 'pid,hostname',
-            },
-          },
+          // Comment out transport for now to fix build issues
+          // transport: {
+          //   target: 'pino-pretty',
+          //   options: {
+          //     colorize: true,
+          //     translateTime: 'SYS:standard',
+          //     ignore: 'pid,hostname',
+          //   },
+          // },
         };
       } catch (error) {
         // Fall back to basic config if pino-pretty is not available
