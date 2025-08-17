@@ -9,7 +9,9 @@
       "@/modules/*": ["./modules/*"],
       "@/ai/*": ["./ai/*"],
       "@/agent/*": ["./agent/*"],
-      "@/types/*": ["./types/*"]
+      "@/types": ["./types/index"],
+      "@/types/*": ["./types/*"],
+      "@/*": ["./*"]
     }
   },
   "include": [
