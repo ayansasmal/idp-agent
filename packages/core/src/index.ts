@@ -80,6 +80,7 @@ export { ModuleError, ValidationError, AIError } from './types';
 import { PrimaryAgent } from './agent/PrimaryAgent';
 import { config } from './shared/config/ConfigManager';
 import { defaultLogger } from './shared/logger/Logger';
+import { RequestContext } from './types';
 
 /**
  * Quick start function to initialize the AI agent

@@ -15,7 +15,7 @@ export class AuditModule extends BaseModule {
 
   constructor() {
     super();
-    this.logger = new CorrelationLogger('audit-module', '', '');
+    this.logger = new CorrelationLogger('audit-module', '');
     this.auditEvents = new Map();
     this.metrics = new MetricsCollector();
     this.complianceReports = new Map();
@@ -49,30 +49,30 @@ export class AuditModule extends BaseModule {
       'AuditModule'
     );
 
-    this.logger.info('Processing audit request', { 
+    this.logger.info('Processing audit request', {
       action: request.action,
-      parameters: request.parameters 
+      parameters: request.parameters
     });
 
     try {
       const response = await this.handleAuditAction(request);
-      
+
       const duration = Date.now() - startTime;
-      this.logger.info('Audit request completed', { 
+      this.logger.info('Audit request completed', {
         action: request.action,
         success: response.success,
-        duration 
+        duration
       });
 
       return response;
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Audit request failed', { 
+      this.logger.error('Audit request failed', {
         action: request.action,
         error,
-        duration 
+        duration
       });
-      
+
       return {
         success: false,
         message: `Audit operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -111,13 +111,13 @@ export class AuditModule extends BaseModule {
   }
 
   async logAuditEvent(params: any, context: RequestContext): Promise<ModuleResponse> {
-    const { 
-      eventType, 
-      resource, 
-      action, 
-      outcome, 
-      details, 
-      metadata = {} 
+    const {
+      eventType,
+      resource,
+      action,
+      outcome,
+      details,
+      metadata = {}
     } = params;
 
     const auditEvent: AuditEvent = {
@@ -174,12 +174,12 @@ export class AuditModule extends BaseModule {
   }
 
   async queryAuditTrail(params: any): Promise<ModuleResponse> {
-    const { 
-      userId, 
-      startDate, 
-      endDate, 
-      eventType, 
-      action, 
+    const {
+      userId,
+      startDate,
+      endDate,
+      eventType,
+      action,
       resource,
       limit = 100,
       offset = 0
@@ -233,16 +233,16 @@ export class AuditModule extends BaseModule {
   }
 
   async generateReport(params: any): Promise<ModuleResponse> {
-    const { 
-      reportType = 'activity', 
-      startDate, 
-      endDate, 
+    const {
+      reportType = 'activity',
+      startDate,
+      endDate,
       userId,
       format = 'json'
     } = params;
 
     const reportId = `report-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     let report: any;
 
     switch (reportType) {
@@ -262,7 +262,7 @@ export class AuditModule extends BaseModule {
         throw new Error(`Unsupported report type: ${reportType}`);
     }
 
-    const formattedReport = format === 'csv' 
+    const formattedReport = format === 'csv'
       ? this.formatReportAsCSV(report)
       : report;
 
@@ -285,9 +285,9 @@ export class AuditModule extends BaseModule {
   }
 
   async getMetrics(params: any): Promise<ModuleResponse> {
-    const { 
-      metricType = 'all', 
-      startDate, 
+    const {
+      metricType = 'all',
+      startDate,
       endDate,
       granularity = 'hour'
     } = params;
@@ -311,16 +311,16 @@ export class AuditModule extends BaseModule {
   }
 
   async generateComplianceReport(params: any, context: RequestContext): Promise<ModuleResponse> {
-    const { 
-      framework = 'SOC2', 
-      startDate, 
-      endDate 
+    const {
+      framework = 'SOC2',
+      startDate,
+      endDate
     } = params;
 
     const reportId = `compliance-${framework.toLowerCase()}-${Date.now()}`;
-    
+
     const complianceData = await this.assessCompliance(framework, startDate, endDate);
-    
+
     const report: ComplianceReport = {
       id: reportId,
       framework,
@@ -352,17 +352,17 @@ export class AuditModule extends BaseModule {
   }
 
   async exportLogs(params: any): Promise<ModuleResponse> {
-    const { 
-      format = 'json', 
-      startDate, 
-      endDate, 
+    const {
+      format = 'json',
+      startDate,
+      endDate,
       userId,
       destination = 'download'
     } = params;
 
     // Get filtered events
     const events = await this.getFilteredEvents({ startDate, endDate, userId });
-    
+
     let exportData: string;
     let mimeType: string;
 
@@ -406,20 +406,20 @@ export class AuditModule extends BaseModule {
   }
 
   async searchEvents(params: any): Promise<ModuleResponse> {
-    const { 
-      query, 
-      fields = ['action', 'resource', 'details'], 
+    const {
+      query,
+      fields = ['action', 'resource', 'details'],
       limit = 50,
       userId
     } = params;
 
-    const events = userId 
+    const events = userId
       ? this.auditEvents.get(userId) || []
       : Array.from(this.auditEvents.values()).flat();
 
     const searchResults = events.filter(event => {
       const searchText = query.toLowerCase();
-      
+
       return fields.some(field => {
         const fieldValue = this.getNestedValue(event, field);
         return fieldValue && fieldValue.toString().toLowerCase().includes(searchText);
@@ -496,13 +496,13 @@ export class AuditModule extends BaseModule {
     events.forEach(event => {
       // Count event types
       summary.eventTypes[event.eventType] = (summary.eventTypes[event.eventType] || 0) + 1;
-      
+
       // Count actions
       summary.actions[event.action] = (summary.actions[event.action] || 0) + 1;
-      
+
       // Count outcomes
       summary.outcomes[event.outcome] = (summary.outcomes[event.outcome] || 0) + 1;
-      
+
       // Count environments
       summary.environments[event.environment] = (summary.environments[event.environment] || 0) + 1;
     });
@@ -512,7 +512,7 @@ export class AuditModule extends BaseModule {
 
   private async generateActivityReport(startDate?: string, endDate?: string, userId?: string): Promise<any> {
     const events = await this.getFilteredEvents({ startDate, endDate, userId });
-    
+
     return {
       summary: this.generateEventSummary(events),
       topUsers: this.getTopUsers(events),
@@ -524,7 +524,7 @@ export class AuditModule extends BaseModule {
 
   private async generateSecurityReport(startDate?: string, endDate?: string): Promise<any> {
     const events = await this.getFilteredEvents({ startDate, endDate });
-    const securityEvents = events.filter(e => 
+    const securityEvents = events.filter(e =>
       ['authentication', 'authorization', 'security-violation'].includes(e.eventType)
     );
 
@@ -540,7 +540,7 @@ export class AuditModule extends BaseModule {
 
   private async generateComplianceReportData(startDate?: string, endDate?: string): Promise<any> {
     const events = await this.getFilteredEvents({ startDate, endDate });
-    
+
     return {
       auditTrailCompleteness: this.assessAuditTrailCompleteness(events),
       dataRetentionCompliance: this.assessDataRetention(events),
@@ -551,7 +551,7 @@ export class AuditModule extends BaseModule {
 
   private async generatePerformanceReport(startDate?: string, endDate?: string): Promise<any> {
     const metrics = await this.metrics.getMetrics('performance', startDate, endDate);
-    
+
     return {
       averageResponseTime: metrics.averageResponseTime || 0,
       totalRequests: metrics.totalRequests || 0,
@@ -563,7 +563,7 @@ export class AuditModule extends BaseModule {
 
   private async assessCompliance(framework: string, startDate?: string, endDate?: string): Promise<any> {
     const events = await this.getFilteredEvents({ startDate, endDate });
-    
+
     return {
       overallCompliance: true,
       findings: [],
@@ -599,7 +599,7 @@ export class AuditModule extends BaseModule {
 
   private getTopUsers(events: AuditEvent[]): Array<{ userId: string; count: number }> {
     const userCounts = new Map<string, number>();
-    
+
     events.forEach(event => {
       userCounts.set(event.userId, (userCounts.get(event.userId) || 0) + 1);
     });
@@ -612,7 +612,7 @@ export class AuditModule extends BaseModule {
 
   private getTopActions(events: AuditEvent[]): Array<{ action: string; count: number }> {
     const actionCounts = new Map<string, number>();
-    
+
     events.forEach(event => {
       actionCounts.set(event.action, (actionCounts.get(event.action) || 0) + 1);
     });
@@ -625,7 +625,7 @@ export class AuditModule extends BaseModule {
 
   private analyzeFailures(events: AuditEvent[]): any {
     const failures = events.filter(e => e.outcome === 'failure');
-    
+
     return {
       totalFailures: failures.length,
       failureRate: (failures.length / events.length) * 100,
@@ -637,7 +637,7 @@ export class AuditModule extends BaseModule {
   private generateTimeline(events: AuditEvent[]): any[] {
     // Group events by hour
     const timeline = new Map<string, number>();
-    
+
     events.forEach(event => {
       const hour = new Date(event.timestamp).toISOString().substr(0, 13) + ':00:00.000Z';
       timeline.set(hour, (timeline.get(hour) || 0) + 1);
@@ -651,12 +651,12 @@ export class AuditModule extends BaseModule {
   private identifySuspiciousActivities(events: AuditEvent[]): any[] {
     // Simple heuristics for suspicious activities
     const suspicious = [];
-    
+
     // Multiple failed authentications
-    const failedAuths = events.filter(e => 
+    const failedAuths = events.filter(e =>
       e.eventType === 'authentication' && e.outcome === 'failure'
     );
-    
+
     if (failedAuths.length > 5) {
       suspicious.push({
         type: 'multiple-auth-failures',
@@ -694,7 +694,7 @@ export class AuditModule extends BaseModule {
   private assessAccessControl(events: AuditEvent[]): any {
     const accessEvents = events.filter(e => e.eventType === 'authorization');
     const failures = accessEvents.filter(e => e.outcome === 'failure');
-    
+
     return {
       compliant: failures.length / accessEvents.length < 0.05,
       failureRate: accessEvents.length > 0 ? (failures.length / accessEvents.length) * 100 : 0
@@ -702,10 +702,10 @@ export class AuditModule extends BaseModule {
   }
 
   private assessChangeManagement(events: AuditEvent[]): any {
-    const changeEvents = events.filter(e => 
+    const changeEvents = events.filter(e =>
       ['deploy', 'scale', 'delete'].includes(e.action)
     );
-    
+
     return {
       compliant: true,
       totalChanges: changeEvents.length,
@@ -720,17 +720,17 @@ export class AuditModule extends BaseModule {
 
   private convertToCSV(events: AuditEvent[]): string {
     if (events.length === 0) return '';
-    
+
     const headers = ['timestamp', 'eventType', 'userId', 'action', 'resource', 'outcome', 'environment'];
-    const rows = events.map(event => 
+    const rows = events.map(event =>
       headers.map(header => event[header as keyof AuditEvent] || '').join(',')
     );
-    
+
     return [headers.join(','), ...rows].join('\n');
   }
 
   private convertToText(events: AuditEvent[]): string {
-    return events.map(event => 
+    return events.map(event =>
       `${event.timestamp} | ${event.userId} | ${event.action} | ${event.resource} | ${event.outcome}`
     ).join('\n');
   }
@@ -742,32 +742,32 @@ export class AuditModule extends BaseModule {
   private calculateRelevanceScore(event: AuditEvent, query: string, fields: string[]): number {
     let score = 0;
     const searchText = query.toLowerCase();
-    
+
     fields.forEach(field => {
       const fieldValue = this.getNestedValue(event, field);
       if (fieldValue && fieldValue.toString().toLowerCase().includes(searchText)) {
         score += 1;
       }
     });
-    
+
     return score;
   }
 
   private groupBy(events: AuditEvent[], field: string): Record<string, number> {
     const groups: Record<string, number> = {};
-    
+
     events.forEach(event => {
       const value = this.getNestedValue(event, field);
       groups[value] = (groups[value] || 0) + 1;
     });
-    
+
     return groups;
   }
 
   async getHealth(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; message: string }> {
     const totalEvents = Array.from(this.auditEvents.values()).flat().length;
     const metricsHealth = await this.metrics.getHealth();
-    
+
     if (metricsHealth.status === 'unhealthy') {
       return {
         status: 'degraded',
@@ -809,7 +809,7 @@ class MetricsCollector {
 
   async getMetrics(type: string, startDate?: string, endDate?: string, granularity?: string): Promise<any> {
     const events = this.metrics.get('events') || [];
-    
+
     return {
       totalEvents: events.length,
       averageResponseTime: 150, // Simulated

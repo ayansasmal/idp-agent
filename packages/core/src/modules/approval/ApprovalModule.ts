@@ -14,7 +14,7 @@ export class ApprovalModule extends BaseModule {
 
   constructor() {
     super();
-    this.logger = new CorrelationLogger('approval-module', '', '');
+    this.logger = new CorrelationLogger('approval-module', '');
     this.pendingApprovals = new Map();
     this.approvalHandlers = new Map();
   }
@@ -55,30 +55,30 @@ export class ApprovalModule extends BaseModule {
       'ApprovalModule'
     );
 
-    this.logger.info('Processing approval request', { 
+    this.logger.info('Processing approval request', {
       action: request.action,
-      parameters: request.parameters 
+      parameters: request.parameters
     });
 
     try {
       const response = await this.handleApprovalAction(request);
-      
+
       const duration = Date.now() - startTime;
-      this.logger.info('Approval request completed', { 
+      this.logger.info('Approval request completed', {
         action: request.action,
         success: response.success,
-        duration 
+        duration
       });
 
       return response;
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Approval request failed', { 
+      this.logger.error('Approval request failed', {
         action: request.action,
         error,
-        duration 
+        duration
       });
-      
+
       return {
         success: false,
         message: `Approval operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -180,7 +180,7 @@ export class ApprovalModule extends BaseModule {
 
   async checkApproval(approvalId: string): Promise<ModuleResponse> {
     const approval = this.pendingApprovals.get(approvalId);
-    
+
     if (!approval) {
       return {
         success: false,
@@ -230,7 +230,7 @@ export class ApprovalModule extends BaseModule {
 
   async approveRequest(approvalId: string, approverId: string, comments?: string): Promise<ModuleResponse> {
     const approval = this.pendingApprovals.get(approvalId);
-    
+
     if (!approval) {
       throw new Error(`Approval request ${approvalId} not found`);
     }
@@ -264,7 +264,7 @@ export class ApprovalModule extends BaseModule {
     if (isFullyApproved) {
       approval.status = 'approved';
       approval.approvedAt = new Date().toISOString();
-      
+
       // Send approval completion notifications
       await this.sendApprovalCompletionNotification(approval);
     }
@@ -278,7 +278,7 @@ export class ApprovalModule extends BaseModule {
 
     return {
       success: true,
-      message: isFullyApproved 
+      message: isFullyApproved
         ? 'Request fully approved and ready for execution'
         : `Approval received from ${approverId}`,
       timestamp: new Date().toISOString(),
@@ -299,7 +299,7 @@ export class ApprovalModule extends BaseModule {
 
   async rejectRequest(approvalId: string, approverId: string, reason?: string): Promise<ModuleResponse> {
     const approval = this.pendingApprovals.get(approvalId);
-    
+
     if (!approval) {
       throw new Error(`Approval request ${approvalId} not found`);
     }
@@ -380,7 +380,7 @@ export class ApprovalModule extends BaseModule {
 
   async escalateApproval(approvalId: string, reason?: string): Promise<ModuleResponse> {
     const approval = this.pendingApprovals.get(approvalId);
-    
+
     if (!approval) {
       throw new Error(`Approval request ${approvalId} not found`);
     }
@@ -423,10 +423,10 @@ export class ApprovalModule extends BaseModule {
       if (approval.status === 'pending' && now > new Date(approval.expiresAt)) {
         approval.status = 'expired';
         expiredCount++;
-        
+
         // Send timeout notifications
         await this.sendTimeoutNotification(approval);
-        
+
         this.logger.info('Approval request expired', { approvalId: id });
       }
     }
@@ -505,7 +505,7 @@ export class ApprovalModule extends BaseModule {
 
   private async sendApprovalCompletionNotification(approval: ApprovalRequest): Promise<void> {
     const message = `✅ Approval completed for ${approval.platformAction.action} operation on ${approval.platformAction.resourceName}`;
-    
+
     for (const handler of this.approvalHandlers.values()) {
       try {
         await handler.sendNotification(approval.context.userId, message);
@@ -517,7 +517,7 @@ export class ApprovalModule extends BaseModule {
 
   private async sendRejectionNotification(approval: ApprovalRequest, approverId: string, reason?: string): Promise<void> {
     const message = `❌ Request rejected by ${approverId}${reason ? `: ${reason}` : ''}`;
-    
+
     for (const handler of this.approvalHandlers.values()) {
       try {
         await handler.sendNotification(approval.context.userId, message);
@@ -529,7 +529,7 @@ export class ApprovalModule extends BaseModule {
 
   private async sendEscalationNotifications(approval: ApprovalRequest, escalationApprovers: string[], reason?: string): Promise<void> {
     const message = `⬆️ Approval escalated for ${approval.platformAction.action} operation${reason ? `: ${reason}` : ''}`;
-    
+
     for (const approverId of escalationApprovers) {
       for (const handler of this.approvalHandlers.values()) {
         try {
@@ -543,7 +543,7 @@ export class ApprovalModule extends BaseModule {
 
   private async sendTimeoutNotification(approval: ApprovalRequest): Promise<void> {
     const message = `⏰ Approval request timed out for ${approval.platformAction.action} operation`;
-    
+
     for (const handler of this.approvalHandlers.values()) {
       try {
         await handler.sendNotification(approval.context.userId, message);
@@ -561,7 +561,7 @@ export class ApprovalModule extends BaseModule {
     const current = approval.approvals.length;
     const required = approval.requirements.requiredCount;
     const percentage = Math.round((current / required) * 100);
-    
+
     return { current, required, percentage };
   }
 
@@ -576,7 +576,7 @@ export class ApprovalModule extends BaseModule {
 
     const timeoutMinutes = timeouts[urgency as keyof typeof timeouts] || timeouts.normal;
     now.setMinutes(now.getMinutes() + timeoutMinutes);
-    
+
     return now.toISOString();
   }
 
@@ -594,7 +594,7 @@ export class ApprovalModule extends BaseModule {
     );
 
     const unhealthyHandlers = handlerHealth.filter(h => h.health.status === 'unhealthy');
-    
+
     if (unhealthyHandlers.length === handlerHealth.length) {
       return {
         status: 'unhealthy',
@@ -615,7 +615,7 @@ export class ApprovalModule extends BaseModule {
 
   async shutdown(): Promise<void> {
     this.logger.info('Shutting down Approval module');
-    
+
     // Shutdown handlers
     for (const handler of this.approvalHandlers.values()) {
       await handler.shutdown();

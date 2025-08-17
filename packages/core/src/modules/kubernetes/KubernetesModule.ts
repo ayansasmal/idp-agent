@@ -15,14 +15,14 @@ export class KubernetesModule extends BaseModule {
 
   constructor() {
     super();
-    this.logger = new CorrelationLogger('kubernetes-module', '', '');
+    this.logger = new CorrelationLogger('kubernetes-module', '');
   }
 
   async initialize(): Promise<void> {
     try {
       // Initialize Kubernetes client
       const kc = new k8s.KubeConfig();
-      
+
       // Try to load config (in-cluster or local kubeconfig)
       try {
         kc.loadFromCluster();
@@ -40,7 +40,7 @@ export class KubernetesModule extends BaseModule {
 
       this.k8sApi = kc.makeApiClient(k8s.CoreV1Api);
       this.k8sAppsApi = kc.makeApiClient(k8s.AppsV1Api);
-      
+
       this.logger.info('Kubernetes module initialized successfully');
     } catch (error) {
       this.logger.error('Failed to initialize Kubernetes module', error);
@@ -51,7 +51,7 @@ export class KubernetesModule extends BaseModule {
   getCapabilities(): string[] {
     return [
       'deploy',
-      'scale', 
+      'scale',
       'status',
       'logs',
       'rollback',
@@ -69,30 +69,30 @@ export class KubernetesModule extends BaseModule {
       'KubernetesModule'
     );
 
-    this.logger.info('Processing Kubernetes request', { 
+    this.logger.info('Processing Kubernetes request', {
       action: request.action,
-      parameters: request.parameters 
+      parameters: request.parameters
     });
 
     try {
       const response = await this.handleKubernetesAction(request);
-      
+
       const duration = Date.now() - startTime;
-      this.logger.info('Kubernetes request completed', { 
+      this.logger.info('Kubernetes request completed', {
         action: request.action,
         success: response.success,
-        duration 
+        duration
       });
 
       return response;
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Kubernetes request failed', { 
+      this.logger.error('Kubernetes request failed', {
         action: request.action,
         error,
-        duration 
+        duration
       });
-      
+
       return {
         success: false,
         message: `Kubernetes operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -223,7 +223,7 @@ export class KubernetesModule extends BaseModule {
         undefined,
         undefined,
         undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' }}
+        { headers: { 'Content-Type': 'application/merge-patch+json' } }
       );
 
       return {
@@ -393,7 +393,7 @@ export class KubernetesModule extends BaseModule {
     }
 
     // Kubernetes rollback using annotations
-    const rollbackAnnotation = revision 
+    const rollbackAnnotation = revision
       ? `deployment.kubernetes.io/revision=${revision}`
       : 'deployment.kubernetes.io/rollback-to=previous';
 
@@ -415,7 +415,7 @@ export class KubernetesModule extends BaseModule {
         undefined,
         undefined,
         undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' }}
+        { headers: { 'Content-Type': 'application/merge-patch+json' } }
       );
 
       return {
@@ -500,7 +500,7 @@ export class KubernetesModule extends BaseModule {
       const deploymentList = deployments.body.items.map(deployment => ({
         name: deployment.metadata?.name || 'unknown',
         replicas: `${deployment.status?.readyReplicas || 0}/${deployment.spec?.replicas || 0}`,
-        status: deployment.status?.conditions?.find(c => c.type === 'Available')?.status === 'True' 
+        status: deployment.status?.conditions?.find(c => c.type === 'Available')?.status === 'True'
           ? 'Running' : 'NotReady',
         age: deployment.metadata?.creationTimestamp
       }));
@@ -557,7 +557,7 @@ export class KubernetesModule extends BaseModule {
         success: true,
         message: `Description of ${resourceName}`,
         timestamp: new Date().toISOString(),
-        data: { 
+        data: {
           description: deployment.body,
           summary: {
             name: deployment.body.metadata?.name,

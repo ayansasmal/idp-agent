@@ -1,5 +1,34 @@
 import { z } from 'zod';
-import 'dotenv/config';
+import path from 'path';
+import { config as dotenvConfig } from 'dotenv';
+import { fileURLToPath } from 'url';
+
+// Load .env from multiple possible locations
+const possibleEnvPaths = [
+  '.env',
+  '../.env', 
+  '../../.env',
+  '../../../.env',
+  '../../../../.env'
+];
+
+let envLoaded = false;
+for (const envPath of possibleEnvPaths) {
+  try {
+    const result = dotenvConfig({ path: envPath });
+    if (result.parsed && Object.keys(result.parsed).length > 0) {
+      console.log(`✅ Loaded .env from: ${envPath}`);
+      envLoaded = true;
+      break;
+    }
+  } catch (error) {
+    // Continue to next path
+  }
+}
+
+if (!envLoaded) {
+  console.warn('⚠️ No .env file found. Using environment variables only.');
+}
 
 // ============================================================================
 // Configuration Schemas
@@ -22,7 +51,7 @@ const RedisConfigSchema = z.object({
 const AIConfigSchema = z.object({
   primaryProvider: z.literal('anthropic'),
   anthropic: z.object({
-    apiKey: z.string().min(1, 'Anthropic API key is required'),
+    apiKey: z.string().default('').describe('Anthropic API key - set ANTHROPIC_API_KEY environment variable'),
     model: z.string().default('claude-sonnet-4-20250514'),
     temperature: z.number().min(0).max(2).default(0),
     maxTokens: z.number().positive().default(4096),

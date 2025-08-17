@@ -13,7 +13,7 @@ export class SafetyModule extends BaseModule {
 
   constructor() {
     super();
-    this.logger = new CorrelationLogger('safety-module', '', '');
+    this.logger = new CorrelationLogger('safety-module', '');
     this.policies = this.initializeDefaultPolicies();
   }
 
@@ -42,30 +42,30 @@ export class SafetyModule extends BaseModule {
       'SafetyModule'
     );
 
-    this.logger.info('Processing safety request', { 
+    this.logger.info('Processing safety request', {
       action: request.action,
-      parameters: request.parameters 
+      parameters: request.parameters
     });
 
     try {
       const response = await this.handleSafetyAction(request);
-      
+
       const duration = Date.now() - startTime;
-      this.logger.info('Safety request completed', { 
+      this.logger.info('Safety request completed', {
         action: request.action,
         success: response.success,
-        duration 
+        duration
       });
 
       return response;
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Safety request failed', { 
+      this.logger.error('Safety request failed', {
         action: request.action,
         error,
-        duration 
+        duration
       });
-      
+
       return {
         success: false,
         message: `Safety validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -128,7 +128,7 @@ export class SafetyModule extends BaseModule {
 
     return {
       success: allValid,
-      message: allValid 
+      message: allValid
         ? 'Action validation passed'
         : `Action validation failed: ${errors.join(', ')}`,
       timestamp: new Date().toISOString(),
@@ -146,10 +146,10 @@ export class SafetyModule extends BaseModule {
   }
 
   async assessRisk(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
-    this.logger.info('Assessing risk for platform action', { 
-      action: action.action, 
+    this.logger.info('Assessing risk for platform action', {
+      action: action.action,
       resource: action.resourceName,
-      environment: action.environment 
+      environment: action.environment
     });
 
     const riskFactors: RiskFactor[] = [];
@@ -197,9 +197,9 @@ export class SafetyModule extends BaseModule {
   }
 
   async checkPolicies(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
-    this.logger.info('Checking policies for platform action', { 
+    this.logger.info('Checking policies for platform action', {
       action: action.action,
-      policyCount: this.policies.length 
+      policyCount: this.policies.length
     });
 
     const policyResults: PolicyCheckResult[] = [];
@@ -217,7 +217,7 @@ export class SafetyModule extends BaseModule {
 
     return {
       success: !hasViolations,
-      message: hasViolations 
+      message: hasViolations
         ? `Policy violations found: ${violations.map(v => v.policy.name).join(', ')}`
         : 'All policy checks passed',
       timestamp: new Date().toISOString(),
@@ -241,9 +241,9 @@ export class SafetyModule extends BaseModule {
   }
 
   async performRealityCheck(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
-    this.logger.info('Performing reality check', { 
+    this.logger.info('Performing reality check', {
       action: action.action,
-      resource: action.resourceName 
+      resource: action.resourceName
     });
 
     const checks: RealityCheck[] = [];
@@ -270,7 +270,7 @@ export class SafetyModule extends BaseModule {
 
     return {
       success: allPassed && blockers.length === 0,
-      message: blockers.length > 0 
+      message: blockers.length > 0
         ? `Reality check failed: ${blockers.map(b => b.name).join(', ')}`
         : 'Reality check passed',
       timestamp: new Date().toISOString(),
@@ -307,7 +307,7 @@ export class SafetyModule extends BaseModule {
 
     return {
       success: isCompliant,
-      message: isCompliant 
+      message: isCompliant
         ? 'All compliance checks passed'
         : `Compliance violations: ${violations.map(v => v.requirement).join(', ')}`,
       timestamp: new Date().toISOString(),
@@ -396,13 +396,13 @@ export class SafetyModule extends BaseModule {
   private validatePermissions(action: PlatformAction, context: RequestContext): ValidationResult {
     const requiredPermissions = this.getRequiredPermissions(action);
     const userPermissions = context.permissions || [];
-    
+
     const missingPermissions = requiredPermissions.filter(p => !userPermissions.includes(p));
 
     return {
       valid: missingPermissions.length === 0,
-      message: missingPermissions.length === 0 
-        ? 'Permission check passed' 
+      message: missingPermissions.length === 0
+        ? 'Permission check passed'
         : `Missing permissions: ${missingPermissions.join(', ')}`,
       warnings: []
     };
@@ -410,7 +410,7 @@ export class SafetyModule extends BaseModule {
 
   private validateResourceName(action: PlatformAction): ValidationResult {
     const warnings: string[] = [];
-    
+
     // Check naming conventions
     if (!/^[a-z0-9-]+$/.test(action.resourceName)) {
       warnings.push('Resource name should contain only lowercase letters, numbers, and hyphens');
@@ -431,13 +431,13 @@ export class SafetyModule extends BaseModule {
   private assessEnvironmentRisk(environment: string): RiskFactor {
     const riskLevels = {
       development: 'low',
-      staging: 'medium', 
+      staging: 'medium',
       production: 'high'
     };
 
     return {
       factor: 'environment',
-      level: riskLevels[environment as keyof typeof riskLevels] || 'high',
+      level: (riskLevels[environment as keyof typeof riskLevels] || 'high') as 'low' | 'medium' | 'high' | 'critical',
       description: `${environment} environment operations`,
       weight: environment === 'production' ? 0.4 : environment === 'staging' ? 0.2 : 0.1
     };
@@ -457,7 +457,7 @@ export class SafetyModule extends BaseModule {
 
     return {
       factor: 'action',
-      level: riskLevels[action as keyof typeof riskLevels] || 'high',
+      level: (riskLevels[action as keyof typeof riskLevels] || 'high') as 'low' | 'medium' | 'high' | 'critical',
       description: `${action} operation risk`,
       weight: action === 'delete' ? 0.3 : action === 'deploy' ? 0.2 : 0.1
     };
@@ -466,7 +466,7 @@ export class SafetyModule extends BaseModule {
   private assessResourceRisk(resourceName: string): RiskFactor {
     // Critical services that require extra caution
     const criticalServices = ['payment', 'auth', 'user', 'database', 'api-gateway'];
-    const isCritical = criticalServices.some(service => 
+    const isCritical = criticalServices.some(service =>
       resourceName.toLowerCase().includes(service)
     );
 
@@ -481,7 +481,7 @@ export class SafetyModule extends BaseModule {
   private assessTimeRisk(): RiskFactor {
     const hour = new Date().getHours();
     const isBusinessHours = hour >= 9 && hour <= 17;
-    
+
     return {
       factor: 'time',
       level: isBusinessHours ? 'low' : 'medium',
@@ -502,7 +502,7 @@ export class SafetyModule extends BaseModule {
 
   private calculateOverallRisk(factors: RiskFactor[]): 'low' | 'medium' | 'high' | 'critical' {
     const score = this.calculateRiskScore(factors);
-    
+
     if (score >= 0.8) return 'critical';
     if (score >= 0.6) return 'high';
     if (score >= 0.3) return 'medium';
@@ -511,7 +511,7 @@ export class SafetyModule extends BaseModule {
 
   private calculateRiskScore(factors: RiskFactor[]): number {
     const levelValues = { low: 0.2, medium: 0.5, high: 0.8, critical: 1.0 };
-    
+
     return factors.reduce((score, factor) => {
       const levelValue = levelValues[factor.level as keyof typeof levelValues] || 0.5;
       return score + (levelValue * factor.weight);
@@ -539,7 +539,7 @@ export class SafetyModule extends BaseModule {
 
   private suggestMitigations(factors: RiskFactor[]): string[] {
     const mitigations: string[] = [];
-    
+
     factors.forEach(factor => {
       if (factor.level === 'high' || factor.level === 'critical') {
         switch (factor.factor) {
@@ -788,7 +788,7 @@ export class SafetyModule extends BaseModule {
           const hour = new Date().getHours();
           const isBusinessHours = hour >= 9 && hour <= 17;
           const isHighRisk = action.environment === 'production' && ['deploy', 'delete'].includes(action.action);
-          
+
           if (isHighRisk && !isBusinessHours) {
             return {
               passed: false,
@@ -797,7 +797,7 @@ export class SafetyModule extends BaseModule {
               details: { currentHour: hour, businessHours: '9-17', requiresJustification: true }
             };
           }
-          
+
           return { passed: true, severity: 'info', message: 'Business hours policy satisfied', details: null };
         }
       }

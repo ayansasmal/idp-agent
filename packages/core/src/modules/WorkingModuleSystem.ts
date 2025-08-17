@@ -81,14 +81,14 @@ export class ModuleCommunicationLayer {
     // Call module and convert response format
     try {
       const response = await module.process(request);
-      
+
       // Handle the response format from our modules
       if (typeof response === 'object' && response !== null) {
         // If it's already in the right format, use it
         if ('requestId' in response) {
           return response as ModuleResponse;
         }
-        
+
         // Convert simple response format
         if ('success' in response && 'message' in response) {
           return {
@@ -97,12 +97,12 @@ export class ModuleCommunicationLayer {
             result: (response as any).data || null,
             metadata: (response as any).metadata || { module: request.module },
             nextActions: [],
-            errors: response.success ? [] : [response.message],
+            errors: response.success ? [] : [response.message as string],
             warnings: []
           };
         }
       }
-      
+
       // Fallback for unknown response format
       return {
         requestId: request.requestId,
@@ -128,7 +128,7 @@ export class ModuleCommunicationLayer {
 
   async getAllModulesHealth(): Promise<Record<string, any>> {
     const health: Record<string, any> = {};
-    
+
     for (const [name, module] of this.modules) {
       try {
         health[name] = await module.getHealth();
@@ -145,11 +145,11 @@ export class ModuleCommunicationLayer {
 
   getAvailableModules(): Record<string, string[]> {
     const modules: Record<string, string[]> = {};
-    
+
     for (const [name, module] of this.modules) {
       modules[name] = module.getCapabilities();
     }
-    
+
     return modules;
   }
 
@@ -251,7 +251,7 @@ export class ModuleCommunicationLayer {
   getAllSupportedActions(): string[] {
     const allActions: string[] = [];
     const capabilities = this.getAvailableModules();
-    
+
     Object.values(capabilities).forEach(moduleActions => {
       allActions.push(...moduleActions);
     });

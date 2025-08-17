@@ -33,6 +33,9 @@ export const ModuleResponseSchema = z.object({
   nextActions: z.array(ModuleRequestSchema).default([]),
   errors: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
+  message: z.string(),
+  timestamp: z.string(),
+  data: z.any().optional(),
 });
 
 export const ValidationResultSchema = z.object({
@@ -47,7 +50,7 @@ export const ValidationResultSchema = z.object({
 // ============================================================================
 
 export const PlatformActionSchema = z.object({
-  action: z.enum(['deploy', 'scale', 'status', 'logs', 'delete', 'rollback']),
+  action: z.enum(['deploy', 'scale', 'status', 'logs', 'delete', 'rollback', 'list', 'describe']),
   resourceType: z.enum(['application', 'database', 'service', 'ingress']),
   resourceName: z.string(),
   environment: z.enum(['development', 'staging', 'production']),

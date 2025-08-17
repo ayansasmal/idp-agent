@@ -293,6 +293,7 @@ Be specific and actionable. Use bullet points for clarity.`,
       ]);
       return true;
     } catch (error) {
+      console.error('🔍 API Key validation error:', error);
       return false;
     }
   }

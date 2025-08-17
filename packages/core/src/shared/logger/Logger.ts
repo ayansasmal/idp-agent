@@ -10,17 +10,33 @@ export class Logger {
   private context: Record<string, any>;
 
   constructor(context: string | Record<string, any> = {}) {
+    // Safe config loading with fallbacks
+    let logLevel = 'info';
+    let isDev = true;
+    
+    try {
+      logLevel = config.getAppConfig().logLevel;
+      isDev = config.isDevelopment();
+    } catch (error) {
+      // Fallback if config fails to load
+      logLevel = process.env.LOG_LEVEL || 'info';
+      isDev = (process.env.NODE_ENV || 'development') === 'development';
+    }
+
     const baseConfig = {
-      level: config.getAppConfig().logLevel,
+      level: logLevel,
       timestamp: pino.stdTimeFunctions.isoTime,
       formatters: {
         level: (label: string) => ({ level: label }),
       },
     };
 
-    // Development: pretty print, Production: JSON
-    const loggerConfig = config.isDevelopment()
-      ? {
+    // Try to use pretty printing in development, fallback to basic if it fails
+    let loggerConfig = baseConfig;
+    
+    if (isDev) {
+      try {
+        loggerConfig = {
           ...baseConfig,
           transport: {
             target: 'pino-pretty',
@@ -30,8 +46,13 @@ export class Logger {
               ignore: 'pid,hostname',
             },
           },
-        }
-      : baseConfig;
+        };
+      } catch (error) {
+        // Fall back to basic config if pino-pretty is not available
+        console.warn('pino-pretty not available, using basic logging');
+        loggerConfig = baseConfig;
+      }
+    }
 
     this.logger = pino(loggerConfig);
     

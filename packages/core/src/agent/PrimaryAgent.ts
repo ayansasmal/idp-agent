@@ -1,6 +1,6 @@
 import { AICore } from '@/ai/AICore';
 import { ModuleCommunicationLayer } from '../modules/WorkingModuleSystem';
-import { 
+import {
   AgentResponse,
   RequestContext,
   ModuleRequest,
@@ -64,7 +64,7 @@ export class PrimaryAgent {
 
       this.isInitialized = true;
       timer.end({ success: true });
-      
+
       this.logger.info('Primary Agent initialized successfully', {
         aiProvider: this.aiCore.getCurrentProviderInfo(),
         environment: config.getAppConfig().nodeEnv,
@@ -107,7 +107,7 @@ export class PrimaryAgent {
       // 1. Parse user intent with AI
       correlationLogger.info('Parsing user intent');
       const intent = await this.aiCore.parseIntent(userInput, context);
-      
+
       correlationLogger.info('Intent parsed successfully', {
         action: intent.platformAction.action,
         resourceType: intent.platformAction.resourceType,
@@ -130,7 +130,7 @@ export class PrimaryAgent {
       const response = await this.generateUserResponse(result, intent, userInput);
 
       timer.end({ success: true });
-      
+
       correlationLogger.info('Request processed successfully', {
         success: response.success,
         actionCount: response.actions.length,
@@ -140,7 +140,7 @@ export class PrimaryAgent {
 
     } catch (error) {
       timer.end({ success: false, error: true });
-      
+
       correlationLogger.error('Request processing failed', error, {
         userInput,
         context,
@@ -168,8 +168,8 @@ export class PrimaryAgent {
     if (intent.requiresValidation) {
       steps.push({
         module: 'safety',
-        action: 'validate_action',
-        parameters: { targetAction: platformAction },
+        action: 'validate',
+        parameters: { platformAction: platformAction },
         dependsOn: [],
         critical: true,
       });
@@ -179,10 +179,11 @@ export class PrimaryAgent {
     if (intent.requiresApproval) {
       steps.push({
         module: 'approval',
-        action: 'request_approval',
-        parameters: { 
-          action: platformAction,
-          summary: await this.aiCore.generateApprovalSummary(platformAction),
+        action: 'request-approval',
+        parameters: {
+          platformAction: platformAction,
+          riskLevel: platformAction.riskLevel,
+          justification: await this.aiCore.generateApprovalSummary(platformAction),
         },
         dependsOn: intent.requiresValidation ? ['safety'] : [],
         critical: true,
@@ -256,7 +257,7 @@ export class PrimaryAgent {
       }
 
       logger.info(`Executing step: ${step.module}.${step.action}`);
-      
+
       try {
         const request: ModuleRequest = {
           requestId: uuidv4(),
@@ -268,7 +269,7 @@ export class PrimaryAgent {
         };
 
         const response = await this.communication.sendRequest(request);
-        
+
         results[step.module] = response;
         completedSteps.push(step.module);
 
@@ -285,7 +286,7 @@ export class PrimaryAgent {
       } catch (error) {
         const errorMessage = `Step failed: ${step.module}.${step.action}: ${error instanceof Error ? error.message : String(error)}`;
         errors.push(errorMessage);
-        
+
         logger.error(`Step execution failed: ${step.module}.${step.action}`, error);
 
         if (step.critical) {
@@ -311,11 +312,11 @@ export class PrimaryAgent {
     originalInput: string
   ): Promise<AgentResponse> {
     const { platformAction } = intent;
-    
+
     if (result.success) {
       // Successful execution
       const message = `✅ Successfully ${platformAction.action}ed ${platformAction.resourceName} in ${platformAction.environment}`;
-      
+
       return AgentResponseSchema.parse({
         success: true,
         message,
@@ -331,7 +332,7 @@ export class PrimaryAgent {
     } else {
       // Failed execution
       const message = `❌ Failed to ${platformAction.action} ${platformAction.resourceName}: ${result.errors.join('; ')}`;
-      
+
       return AgentResponseSchema.parse({
         success: false,
         message,
@@ -399,12 +400,13 @@ export class PrimaryAgent {
    * Get agent health status
    */
   async getHealthStatus() {
+    type healthStatus = "pass" | "fail" | "warn" | "unknown" | "healthy" | "unhealthy" | "degraded";
     const health = {
-      status: 'healthy' as const,
+      status: 'healthy' as healthStatus,
       checks: {
-        agent: { status: 'pass' as const, message: 'Primary agent operational' },
-        ai: { status: 'unknown' as const, message: 'Checking AI provider...' },
-        modules: { status: 'unknown' as const, message: 'Checking modules...' },
+        agent: { status: 'pass' as healthStatus, message: 'Primary agent operational' },
+        ai: { status: 'unknown' as healthStatus, message: 'Checking AI provider...' },
+        modules: { status: 'unknown' as healthStatus, message: 'Checking modules...' },
       },
       timestamp: new Date().toISOString(),
     };

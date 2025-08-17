@@ -2,9 +2,9 @@ import { AnthropicProvider } from './providers/AnthropicProvider';
 import { AIError, IntentAnalysis, RequestContext } from '@/types';
 
 export interface AIConfig {
-  primaryProvider: 'anthropic';
-  anthropic: {
-    apiKey: string;
+  primaryProvider?: 'anthropic';
+  anthropic?: {
+    apiKey?: string;
     model?: string;
     temperature?: number;
     maxTokens?: number;
@@ -12,8 +12,8 @@ export interface AIConfig {
   };
   fallbackProviders?: string[];
   retryConfig?: {
-    maxRetries: number;
-    backoffMs: number;
+    maxRetries?: number;
+    backoffMs?: number;
   };
 }
 
@@ -47,7 +47,7 @@ export class AICore {
           maxRetries: this.config.anthropic.maxRetries,
         }
       );
-      
+
       this.providers.set('anthropic', provider);
       this.currentProvider = provider;
     }
@@ -120,7 +120,7 @@ export class AICore {
       };
     } catch (error) {
       if (error instanceof AIError) throw error;
-      
+
       throw new AIError(
         `Intent parsing failed: ${error instanceof Error ? error.message : String(error)}`,
         this.config.primaryProvider,
@@ -144,7 +144,7 @@ export class AICore {
       });
     } catch (error) {
       if (error instanceof AIError) throw error;
-      
+
       throw new AIError(
         `Failed to generate approval summary: ${error instanceof Error ? error.message : String(error)}`,
         this.config.primaryProvider,
@@ -168,7 +168,7 @@ export class AICore {
       });
     } catch (error) {
       if (error instanceof AIError) throw error;
-      
+
       throw new AIError(
         `Chat failed: ${error instanceof Error ? error.message : String(error)}`,
         this.config.primaryProvider,
