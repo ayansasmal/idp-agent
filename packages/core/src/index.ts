@@ -17,9 +17,9 @@ export { AnthropicProvider } from './ai/providers/AnthropicProvider';
 // ============================================================================
 // Module System Exports
 // ============================================================================
-export { BaseModule } from './modules/base/BaseModule';
+export { BaseModule } from './modules/base/SimpleBaseModule';
 export { ModuleRegistry } from './modules/ModuleRegistry';
-export { ModuleCommunicationLayer } from './modules/ModuleCompat';
+export { ModuleCommunicationLayer } from './modules/WorkingModuleSystem';
 
 // Export individual modules
 export { KubernetesModule } from './modules/kubernetes/KubernetesModule';

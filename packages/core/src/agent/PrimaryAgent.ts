@@ -1,5 +1,5 @@
 import { AICore } from '@/ai/AICore';
-import { ModuleCommunicationLayer } from '../modules/ModuleCompat';
+import { ModuleCommunicationLayer } from '../modules/WorkingModuleSystem';
 import { 
   AgentResponse,
   RequestContext,
