@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3002",
-    "build": "next build",
+    "dev": "npm run dev:with-core",
+    "dev:standalone": "next dev --port 3002",
+    "dev:with-core": "concurrently \"npm run dev:core\" \"npm run dev:standalone\"",
+    "dev:core": "cd ../core && npm run dev",
+    "build": "npm run build:core && next build",
+    "build:core": "cd ../core && npm run build",
     "start": "next start --port 3002",
     "lint": "next lint",
     "type-check": "tsc --noEmit"
@@ -27,6 +31,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^8.2.2",
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
     "tailwindcss": "^4",

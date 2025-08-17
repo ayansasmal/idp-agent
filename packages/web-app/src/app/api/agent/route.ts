@@ -1,79 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OperationRequestSchema } from "@/lib/types";
 import { z } from "zod";
+import { PrimaryAgent, createAgent, RequestContext } from "@ai-idp/core";
 
-// Mock agent implementation for demo purposes
-class MockAgent {
-  async processRequest(userInput: string, context: any) {
-    // Simple intent analysis based on keywords
-    const input = userInput.toLowerCase();
-    
-    let action = "status";
-    let resourceName = "unknown-resource";
-    let riskLevel = "low";
-    let requiresApproval = false;
-    
-    // Parse intent from user input
-    if (input.includes("deploy")) {
-      action = "deploy";
-      riskLevel = input.includes("production") ? "high" : "medium";
-      requiresApproval = riskLevel !== "low";
-    } else if (input.includes("scale")) {
-      action = "scale";
-      riskLevel = input.includes("production") ? "medium" : "low";
-      requiresApproval = riskLevel === "high";
-    } else if (input.includes("delete") || input.includes("remove")) {
-      action = "delete";
-      riskLevel = "high";
-      requiresApproval = true;
+// Global agent instance
+let primaryAgent: PrimaryAgent | null = null;
+
+// Initialize agent on startup
+async function getAgent(): Promise<PrimaryAgent> {
+  if (!primaryAgent) {
+    try {
+      primaryAgent = await createAgent();
+      console.log('Primary Agent initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize Primary Agent:', error);
+      throw new Error('Agent initialization failed');
     }
-    
-    // Extract resource name
-    const words = userInput.split(" ");
-    for (let i = 0; i < words.length; i++) {
-      if (["app", "service", "database", "my"].includes(words[i].toLowerCase()) && i + 1 < words.length) {
-        resourceName = words[i + 1].replace(/[^a-zA-Z0-9-]/g, "");
-        break;
-      }
-    }
-    
-    const platformAction = requiresApproval ? {
-      action,
-      resourceName,
-      parameters: {
-        environment: context.environment,
-        userRequested: true,
-      },
-      explanation: `Execute ${action} operation on ${resourceName} in ${context.environment} environment`,
-      rollbackPlan: `Revert ${resourceName} to previous state using kubectl rollout undo`,
-      riskLevel,
-      estimatedImpact: riskLevel === "high" ? "Potential service disruption" : "Minimal impact expected",
-      confidence: 0.85,
-    } : null;
-    
-    let response = `I understand you want to ${action} ${resourceName}. `;
-    
-    if (requiresApproval) {
-      response += `Due to the ${riskLevel} risk level of this operation, it requires human approval before execution.`;
-    } else {
-      response += `This is a ${riskLevel} risk operation. Proceeding with ${action} on ${resourceName}.`;
-    }
-    
-    return {
-      response,
-      requiresApproval,
-      platformAction,
-      riskLevel,
-      confidence: 0.85,
-    };
   }
-  
-  getHealth() {
-    return {
-      status: "healthy",
-      modules: ["mock-agent"],
-    };
-  }
+  return primaryAgent;
 }
 
 export async function POST(req: NextRequest) {
@@ -117,12 +61,21 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
     };
 
-    // Process the request with our mock agent
-    const result = await mockAgent.processRequest(operationRequest.userInput, requestContext);
+    // Get the core agent instance
+    const agent = await getAgent();
     
-    // If the result requires approval, create an approval record
-    let approvalId = result.approvalId;
-    if (result.requiresApproval && result.platformAction && !approvalId) {
+    // Process the request with the real core agent
+    const result = await agent.processRequest(operationRequest.userInput, requestContext as RequestContext);
+    
+    // Check if the result has actions that require approval
+    let approvalId = result.metadata?.approvalId;
+    const hasApprovalRequiredActions = result.actions?.some((action: any) => 
+      action.riskLevel === 'high' || action.riskLevel === 'critical'
+    );
+    
+    if (hasApprovalRequiredActions && result.actions && result.actions.length > 0 && !approvalId) {
+      const primaryAction = result.actions[0]; // Take the first action for approval
+      
       // Create approval record via our API
       const approvalResponse = await fetch(new URL('/api/approvals', req.url), {
         method: 'POST',
@@ -130,15 +83,15 @@ export async function POST(req: NextRequest) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          resource: result.platformAction.resourceName,
-          action: result.platformAction.action,
-          parameters: result.platformAction.parameters,
-          diff: `Proposed ${result.platformAction.action} operation on ${result.platformAction.resourceName}:\n\n${result.platformAction.explanation}`,
-          explanation: result.platformAction.explanation,
-          rollbackPlan: result.platformAction.rollbackPlan,
-          riskLevel: result.platformAction.riskLevel,
-          estimatedImpact: result.platformAction.estimatedImpact,
-          confidence: result.platformAction.confidence,
+          resource: primaryAction.resourceName,
+          action: primaryAction.action,
+          parameters: primaryAction.parameters,
+          diff: `Proposed ${primaryAction.action} operation on ${primaryAction.resourceName}:\n\n${primaryAction.explanation}`,
+          explanation: primaryAction.explanation,
+          rollbackPlan: primaryAction.rollbackPlan,
+          riskLevel: primaryAction.riskLevel,
+          estimatedImpact: primaryAction.estimatedImpact,
+          confidence: result.metadata?.confidence || 0.85,
           createdBy: requestContext.userId,
         }),
       });
@@ -149,10 +102,14 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    // Generate response content
-    let responseContent = result.response;
-    if (result.requiresApproval && approvalId) {
-      responseContent += `\n\n⚠️ **Approval Required**: This operation requires human approval due to ${result.riskLevel} risk level. View approval details: [Approval ${approvalId}](/approvals?id=${approvalId})`;
+    // Generate response content from the agent's message
+    let responseContent = result.message || "Operation processed successfully";
+    
+    // Add approval information if needed
+    if (hasApprovalRequiredActions && approvalId) {
+      const primaryAction = result.actions?.[0];
+      const riskLevel = primaryAction?.riskLevel || 'high';
+      responseContent += `\n\n⚠️ **Approval Required**: This operation requires human approval due to ${riskLevel} risk level. View approval details: [Approval ${approvalId}](/approvals?id=${approvalId})`;
     }
     
     // Return the response in chat format
@@ -161,10 +118,12 @@ export async function POST(req: NextRequest) {
       role: "assistant",
       content: responseContent,
       metadata: {
-        requiresApproval: result.requiresApproval,
+        requiresApproval: hasApprovalRequiredActions || false,
         approvalId: approvalId,
-        confidence: result.confidence,
-        riskLevel: result.riskLevel,
+        confidence: result.metadata?.confidence || 0.85,
+        riskLevel: result.actions?.[0]?.riskLevel || 'low',
+        success: result.success,
+        actions: result.actions?.length || 0,
       },
     });
 
@@ -188,24 +147,31 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const mockAgent = new MockAgent();
-
 export async function GET() {
   try {
-    const health = mockAgent.getHealth();
+    console.log('Getting agent for health check...');
+    const agent = await getAgent();
+    console.log('Agent obtained, calling getHealthStatus...');
+    const health = await agent.getHealthStatus();
+    console.log('Health status received:', health);
     
     return NextResponse.json({
-      status: "healthy",
+      status: health.status,
       timestamp: new Date().toISOString(),
       agentReady: health.status === "healthy",
-      modules: health.modules,
+      modules: Object.keys(health.checks || {}),
+      checks: health.checks,
     });
   } catch (error: any) {
+    console.error('Health check failed:', error);
+    console.error('Error stack:', error.stack);
     return NextResponse.json(
       { 
         status: "unhealthy", 
         error: error.message,
         timestamp: new Date().toISOString(),
+        agentReady: false,
+        modules: [],
       },
       { status: 500 }
     );
