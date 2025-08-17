@@ -4,7 +4,7 @@ import { SafetyModule } from './safety/SafetyModule';
 import { ApprovalModule } from './approval/ApprovalModule';
 import { AuditModule } from './audit/AuditModule';
 import { ModuleRequest, ModuleResponse } from '../types';
-import { CorrelationLogger } from '../shared/logger/Logger';
+import { defaultLogger } from '../shared/logger/Logger';
 
 /**
  * Working Module Communication Layer for Phase 2
@@ -12,13 +12,12 @@ import { CorrelationLogger } from '../shared/logger/Logger';
  */
 export class ModuleCommunicationLayer {
   private modules: Map<string, BaseModule>;
-  private logger: CorrelationLogger;
+  private logger = defaultLogger.child({ component: 'ModuleCommunication' });
   private networkMode: boolean = false;
   private initialized: boolean = false;
 
   constructor() {
     this.modules = new Map();
-    this.logger = new CorrelationLogger('module-communication', '', '');
   }
 
   async initialize(): Promise<void> {
@@ -79,18 +78,39 @@ export class ModuleCommunicationLayer {
       throw new Error(`Module not found: ${request.module}`);
     }
 
-    // Convert our response format to expected ModuleResponse format
+    // Call module and convert response format
     try {
       const response = await module.process(request);
       
-      // Convert SimpleModuleResponse to ModuleResponse
+      // Handle the response format from our modules
+      if (typeof response === 'object' && response !== null) {
+        // If it's already in the right format, use it
+        if ('requestId' in response) {
+          return response as ModuleResponse;
+        }
+        
+        // Convert simple response format
+        if ('success' in response && 'message' in response) {
+          return {
+            requestId: request.requestId,
+            success: response.success,
+            result: (response as any).data || null,
+            metadata: (response as any).metadata || { module: request.module },
+            nextActions: [],
+            errors: response.success ? [] : [response.message],
+            warnings: []
+          };
+        }
+      }
+      
+      // Fallback for unknown response format
       return {
         requestId: request.requestId,
-        success: response.success,
-        result: response.data,
-        metadata: response.metadata || {},
+        success: true,
+        result: response,
+        metadata: { module: request.module },
         nextActions: [],
-        errors: response.success ? [] : [response.message],
+        errors: [],
         warnings: []
       };
     } catch (error) {

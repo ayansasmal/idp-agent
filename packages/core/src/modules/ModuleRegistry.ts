@@ -1,25 +1,18 @@
-import { ModuleCommunicationLayer } from './ModuleCompat';
-import { KubernetesModule } from './kubernetes/KubernetesModule';
-import { SafetyModule } from './safety/SafetyModule';
-import { ApprovalModule } from './approval/ApprovalModule';
-import { AuditModule } from './audit/AuditModule';
-import { CorrelationLogger } from '../shared/logger/Logger';
+import { ModuleCommunicationLayer } from './WorkingModuleSystem';
+import { defaultLogger } from '../shared/logger/Logger';
 
 /**
- * Module Registry - Registers and manages all platform modules
+ * Module Registry - Simplified registry that delegates to WorkingModuleSystem
  * Phase 1: All modules run locally in the same process
  * Phase 2: Modules can be extracted to standalone agents
  */
 export class ModuleRegistry {
   private communication: ModuleCommunicationLayer;
-  private logger: CorrelationLogger;
-  private modules: Map<string, any>;
+  private logger = defaultLogger.child({ component: 'ModuleRegistry' });
   private initialized: boolean = false;
 
   constructor(networkMode: boolean = false) {
     this.communication = new ModuleCommunicationLayer();
-    this.logger = new CorrelationLogger('module-registry', '', '');
-    this.modules = new Map();
   }
 
   /**
@@ -34,32 +27,11 @@ export class ModuleRegistry {
     this.logger.info('Initializing module registry');
 
     try {
-      // Create module instances
-      const kubernetesModule = new KubernetesModule();
-      const safetyModule = new SafetyModule();
-      const approvalModule = new ApprovalModule();
-      const auditModule = new AuditModule();
-
-      // Store module references
-      this.modules.set('kubernetes', kubernetesModule);
-      this.modules.set('safety', safetyModule);
-      this.modules.set('approval', approvalModule);
-      this.modules.set('audit', auditModule);
-
-      // Register modules with communication layer
-      this.communication.registerModule('kubernetes', kubernetesModule);
-      this.communication.registerModule('safety', safetyModule);
-      this.communication.registerModule('approval', approvalModule);
-      this.communication.registerModule('audit', auditModule);
-
-      // Initialize all modules
-      await this.communication.initializeModules();
+      // Initialize the communication layer (which handles module creation and registration)
+      await this.communication.initialize();
 
       this.initialized = true;
-      this.logger.info('Module registry initialized successfully', {
-        moduleCount: this.modules.size,
-        modules: Array.from(this.modules.keys())
-      });
+      this.logger.info('Module registry initialized successfully');
 
     } catch (error) {
       this.logger.error('Failed to initialize module registry', error);
@@ -109,22 +81,7 @@ export class ModuleRegistry {
    * Test connectivity to all modules
    */
   async testConnectivity(): Promise<Record<string, boolean>> {
-    const results: Record<string, boolean> = {};
-
-    for (const moduleName of this.modules.keys()) {
-      try {
-        const health = await this.getModuleHealth(moduleName);
-        results[moduleName] = health.status === 'healthy';
-      } catch (error) {
-        results[moduleName] = false;
-        this.logger.warn('Module connectivity test failed', { 
-          moduleName, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
-        });
-      }
-    }
-
-    return results;
+    return this.communication.testConnectivity();
   }
 
   /**
@@ -144,8 +101,7 @@ export class ModuleRegistry {
     this.logger.info('Shutting down module registry');
 
     try {
-      await this.communication.shutdownModules();
-      this.modules.clear();
+      await this.communication.shutdown();
       this.initialized = false;
       this.logger.info('Module registry shutdown complete');
     } catch (error) {
@@ -163,11 +119,12 @@ export class ModuleRegistry {
     capabilities: Record<string, string[]>;
   } {
     const capabilities = this.getAvailableModules();
-    
+    const moduleNames = Object.keys(capabilities);
+
     return {
-      totalModules: this.modules.size,
-      initializedModules: this.initialized ? this.modules.size : 0,
-      moduleNames: Array.from(this.modules.keys()),
+      totalModules: moduleNames.length,
+      initializedModules: this.initialized ? moduleNames.length : 0,
+      moduleNames,
       capabilities
     };
   }
@@ -177,7 +134,7 @@ export class ModuleRegistry {
    */
   validateRequiredModules(requiredModules: string[]): { valid: boolean; missing: string[] } {
     const missing = requiredModules.filter(moduleName => !this.isModuleAvailable(moduleName));
-    
+
     return {
       valid: missing.length === 0,
       missing
@@ -255,7 +212,7 @@ export class ModuleRegistry {
   getAllSupportedActions(): string[] {
     const allActions: string[] = [];
     const capabilities = this.getAvailableModules();
-    
+
     Object.values(capabilities).forEach(moduleActions => {
       allActions.push(...moduleActions);
     });
