@@ -22,25 +22,32 @@ async function getAgent(): Promise<PrimaryAgent> {
 
 // Convert core approval format to web app format
 function convertToWebApproval(coreApproval: any): Approval {
+  // Handle both the full approval object format and the simplified list format
+  const platformAction = coreApproval.platformAction || {};
+  const resource = platformAction.resourceName || coreApproval.resource || 'unknown';
+  const action = platformAction.action || coreApproval.action || 'unknown';
+  const environment = platformAction.environment || coreApproval.environment || 'development';
+  
   return {
     id: coreApproval.id,
     state: coreApproval.status === 'pending' ? 'PENDING' : 
            coreApproval.status === 'approved' ? 'APPROVED' : 
-           coreApproval.status === 'rejected' ? 'REJECTED' : 'EXPIRED',
-    resource: coreApproval.platformAction.resourceName,
-    action: coreApproval.platformAction.action,
+           coreApproval.status === 'rejected' ? 'REJECTED' : 
+           coreApproval.status === 'expired' ? 'EXPIRED' : 'PENDING', // Default to PENDING for list format
+    resource: resource,
+    action: action,
     parameters: {
-      environment: coreApproval.platformAction.environment,
-      ...coreApproval.platformAction.parameters,
+      environment: environment,
+      ...(platformAction.parameters || {}),
     },
-    diff: `${coreApproval.platformAction.action} ${coreApproval.platformAction.resourceName} in ${coreApproval.platformAction.environment}`,
-    explanation: coreApproval.platformAction.explanation || coreApproval.justification,
-    rollbackPlan: coreApproval.platformAction.rollbackPlan,
-    riskLevel: coreApproval.riskLevel,
-    estimatedImpact: coreApproval.platformAction.estimatedImpact,
+    diff: `${action} ${resource} in ${environment}`,
+    explanation: platformAction.explanation || coreApproval.justification || 'No explanation provided',
+    rollbackPlan: platformAction.rollbackPlan || 'No rollback plan specified',
+    riskLevel: coreApproval.riskLevel || 'medium',
+    estimatedImpact: platformAction.estimatedImpact || 'Unknown impact',
     confidence: coreApproval.confidence || 0.85,
     createdAt: coreApproval.createdAt,
-    createdBy: coreApproval.context.userId,
+    createdBy: coreApproval.context?.userId || 'system',
     reviewedAt: coreApproval.approvedAt || coreApproval.rejectedAt,
     reviewedBy: coreApproval.approvals?.[0]?.approverId || coreApproval.rejections?.[0]?.approverId,
     reviewNotes: coreApproval.approvals?.[0]?.comments || coreApproval.rejections?.[0]?.comments,
@@ -51,26 +58,15 @@ export async function GET() {
   try {
     const agent = await getAgent();
     
-    // Create a dummy context for the approval module request
-    const context: RequestContext = {
-      userId: "web-user",
-      sessionId: `web-session-${Date.now()}`,
-      originalRequest: "list pending approvals",
-      environment: "development",
-      permissions: ["read", "write", "deploy"],
-      auditTrail: [],
-      timestamp: new Date().toISOString(),
-    };
-
-    // Request pending approvals from the core agent
-    const result = await agent.processRequest("list pending approvals", context);
+    // Use direct approval module access (bypasses AI processing)
+    const result = await agent.getApprovalModule();
     
     if (!result.success) {
-      throw new Error(result.message || "Failed to fetch approvals from core agent");
+      throw new Error(result.message || "Failed to fetch approvals from approval module");
     }
 
     // Convert core approval format to web app format
-    const coreApprovals = result.data?.pendingApprovals || [];
+    const coreApprovals = result.result?.pendingApprovals || [];
     const webApprovals = coreApprovals.map(convertToWebApproval);
     
     // Sort by creation date, newest first
@@ -80,7 +76,7 @@ export async function GET() {
     
     return NextResponse.json(sortedApprovals);
   } catch (error: any) {
-    console.error("Failed to fetch approvals from core agent:", error);
+    console.error("Failed to fetch approvals from approval module:", error);
     return NextResponse.json(
       { error: "Failed to fetch approvals", message: error.message },
       { status: 500 }
@@ -122,17 +118,11 @@ export async function PATCH(req: NextRequest) {
     let result;
     
     if (state === "APPROVED") {
-      // Approve the request using core agent
-      result = await agent.processRequest(
-        `approve approval ${id} with comments: ${reviewNotes || "Approved via web interface"}`,
-        context
-      );
+      // Approve the request using direct approval module access
+      result = await agent.processApprovalAction("approve", id, reviewedBy || "web-user", reviewNotes);
     } else if (state === "REJECTED") {
-      // Reject the request using core agent
-      result = await agent.processRequest(
-        `reject approval ${id} with reason: ${reviewNotes || "Rejected via web interface"}`,
-        context
-      );
+      // Reject the request using direct approval module access
+      result = await agent.processApprovalAction("reject", id, reviewedBy || "web-user", reviewNotes);
     } else {
       return NextResponse.json(
         { error: "Invalid state. Must be APPROVED or REJECTED" },
@@ -144,15 +134,20 @@ export async function PATCH(req: NextRequest) {
       throw new Error(result.message || "Failed to update approval");
     }
 
-    // Fetch the updated approval from core agent
-    const updatedResult = await agent.processRequest(`check approval ${id}`, context);
+    // Get the updated approval data from the result
+    const approvalData = result.result || {};
     
-    if (!updatedResult.success) {
-      throw new Error("Failed to fetch updated approval");
-    }
-
     // Convert to web format and return
-    const webApproval = convertToWebApproval(updatedResult.data);
+    // Create a simple approval object for the response
+    const webApproval = {
+      id: id,
+      state: state as 'APPROVED' | 'REJECTED',
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: reviewedBy || "web-user",
+      reviewNotes: reviewNotes || (state === "APPROVED" ? "Approved via web interface" : "Rejected via web interface"),
+      // Add other fields as needed - we'll return what we have
+      ...approvalData
+    };
     
     return NextResponse.json(webApproval);
   } catch (error: any) {
