@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
 import { nanoid } from "nanoid";
@@ -19,6 +19,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   
   const context = {
     userId: "web-user",
@@ -49,16 +50,29 @@ export default function Chat() {
     setError(null);
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      // Include session ID if we have one
+      if (sessionIdRef.current) {
+        headers["x-session-id"] = sessionIdRef.current;
+      }
+
       const response = await fetch("/api/agent", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           messages: [...messages, userMessage],
           context,
         }),
       });
+
+      // Extract session ID from response headers
+      const responseSessionId = response.headers.get('x-session-id');
+      if (responseSessionId) {
+        sessionIdRef.current = responseSessionId;
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -125,7 +139,11 @@ export default function Chat() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6">
-        <MessageList messages={messages} onNamespaceSelect={handleNamespaceSelect} />
+        <MessageList 
+          messages={messages} 
+          onNamespaceSelect={handleNamespaceSelect}
+          onParameterSubmit={submitMessage}
+        />
         {error && (
           <div className="mt-4 rounded-lg bg-red-50 border border-red-200 p-4">
             <div className="flex">

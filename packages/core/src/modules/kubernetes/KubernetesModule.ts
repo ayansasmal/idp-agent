@@ -425,6 +425,15 @@ export class KubernetesModule extends BaseModule {
         `app=${resourceName}`
       );
 
+      // Get detailed insights for better troubleshooting
+      const insights = await this.getDetailedInsights(resourceName, resolvedNamespace, deployment.body, pods.body.items);
+
+      // Get recent logs from pods (for troubleshooting)
+      const recentLogs = await this.getRecentLogsFromPods(pods.body.items, resolvedNamespace);
+
+      // Get events related to the deployment
+      const events = await this.getDeploymentEvents(resourceName, resolvedNamespace);
+
       return this.createFormattedResponse(
         true,
         `Status for ${resourceName} in namespace ${resolvedNamespace}`,
@@ -435,7 +444,11 @@ export class KubernetesModule extends BaseModule {
             desired: deployment.body.spec?.replicas || 0,
             ready: deployment.body.status?.readyReplicas || 0,
             available: deployment.body.status?.availableReplicas || 0
-          }
+          },
+          insights: insights,
+          recentLogs: recentLogs,
+          events: events,
+          troubleshooting: this.generateTroubleshootingInfo(deployment.body, pods.body.items, insights)
         },
         'status',
         resourceName,
@@ -756,6 +769,226 @@ export class KubernetesModule extends BaseModule {
         }
       }
     };
+  }
+
+  /**
+   * Get detailed insights about deployment health and status
+   */
+  private async getDetailedInsights(resourceName: string, namespace: string, deployment: any, pods: any[]): Promise<any> {
+    const insights = {
+      health: 'unknown',
+      issues: [],
+      recommendations: [],
+      resourceUsage: {},
+      podStatusSummary: {}
+    };
+
+    try {
+      // Analyze deployment health
+      const desired = deployment.spec?.replicas || 0;
+      const ready = deployment.status?.readyReplicas || 0;
+      const available = deployment.status?.availableReplicas || 0;
+
+      if (ready === desired && available === desired) {
+        insights.health = 'healthy';
+      } else if (ready > 0) {
+        insights.health = 'degraded';
+        insights.issues.push(`Only ${ready}/${desired} replicas are ready`);
+        insights.recommendations.push('Check pod logs and events for startup issues');
+      } else {
+        insights.health = 'unhealthy';
+        insights.issues.push('No replicas are ready');
+        insights.recommendations.push('Check deployment configuration and resource limits');
+      }
+
+      // Analyze individual pod status
+      const podStatusCounts = pods.reduce((acc, pod) => {
+        const phase = pod.status?.phase || 'Unknown';
+        acc[phase] = (acc[phase] || 0) + 1;
+        return acc;
+      }, {});
+      insights.podStatusSummary = podStatusCounts;
+
+      // Check for common issues
+      pods.forEach(pod => {
+        const podName = pod.metadata?.name;
+        const status = pod.status;
+
+        // Check for ImagePullBackOff
+        const containerStatuses = status?.containerStatuses || [];
+        containerStatuses.forEach((containerStatus: any) => {
+          if (containerStatus.state?.waiting?.reason === 'ImagePullBackOff') {
+            insights.issues.push(`Pod ${podName}: Image pull failed`);
+            insights.recommendations.push('Verify image name and registry access');
+          }
+          if (containerStatus.state?.waiting?.reason === 'CrashLoopBackOff') {
+            insights.issues.push(`Pod ${podName}: Container crashing on startup`);
+            insights.recommendations.push('Check application logs and startup configuration');
+          }
+        });
+
+        // Check resource constraints
+        if (status?.phase === 'Pending') {
+          insights.issues.push(`Pod ${podName}: Stuck in Pending state`);
+          insights.recommendations.push('Check for resource constraints or scheduling issues');
+        }
+      });
+
+      return insights;
+    } catch (error) {
+      this.logger.warn('Failed to generate deployment insights', error);
+      return {
+        health: 'unknown',
+        issues: ['Failed to analyze deployment health'],
+        recommendations: ['Manual investigation required'],
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get recent logs from all pods for troubleshooting
+   */
+  private async getRecentLogsFromPods(pods: any[], namespace: string): Promise<any> {
+    if (!this.k8sApi || pods.length === 0) {
+      return { available: false, reason: 'No pods or API not available' };
+    }
+
+    try {
+      const logPromises = pods.slice(0, 3).map(async pod => { // Limit to first 3 pods
+        const podName = pod.metadata?.name;
+        if (!podName) return null;
+
+        try {
+          const logs = await this.k8sApi!.readNamespacedPodLog(
+            podName,
+            namespace,
+            undefined, // container
+            undefined, // follow
+            undefined, // previous
+            undefined, // pretty
+            undefined, // sinceSeconds
+            100, // tailLines - get last 100 lines
+            undefined // timestamps
+          );
+
+          return {
+            podName,
+            logs: logs.body,
+            hasErrors: logs.body.toLowerCase().includes('error') || logs.body.toLowerCase().includes('exception')
+          };
+        } catch (error) {
+          return {
+            podName,
+            error: error instanceof Error ? error.message : 'Failed to get logs',
+            logs: null
+          };
+        }
+      });
+
+      const results = await Promise.all(logPromises);
+      return {
+        available: true,
+        podLogs: results.filter(result => result !== null)
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: error instanceof Error ? error.message : 'Failed to retrieve logs'
+      };
+    }
+  }
+
+  /**
+   * Get recent events related to the deployment
+   */
+  private async getDeploymentEvents(resourceName: string, namespace: string): Promise<any> {
+    if (!this.k8sApi) {
+      return { available: false, reason: 'API not available' };
+    }
+
+    try {
+      const events = await this.k8sApi.listNamespacedEvent(
+        namespace,
+        undefined, // pretty
+        undefined, // allowWatchBookmarks
+        undefined, // continue
+        `involvedObject.name=${resourceName}`, // fieldSelector
+        undefined, // labelSelector
+        10 // limit
+      );
+
+      const sortedEvents = events.body.items
+        .sort((a, b) => {
+          const timeA = new Date(a.lastTimestamp || a.eventTime || 0).getTime();
+          const timeB = new Date(b.lastTimestamp || b.eventTime || 0).getTime();
+          return timeB - timeA; // Most recent first
+        })
+        .slice(0, 10); // Keep only 10 most recent
+
+      return {
+        available: true,
+        events: sortedEvents.map(event => ({
+          type: event.type,
+          reason: event.reason,
+          message: event.message,
+          timestamp: event.lastTimestamp || event.eventTime,
+          count: event.count || 1
+        }))
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: error instanceof Error ? error.message : 'Failed to retrieve events'
+      };
+    }
+  }
+
+  /**
+   * Generate troubleshooting information based on insights
+   */
+  private generateTroubleshootingInfo(deployment: any, pods: any[], insights: any): any {
+    const troubleshooting = {
+      status: insights.health,
+      quickChecks: [],
+      commands: [],
+      nextSteps: []
+    };
+
+    // Add relevant troubleshooting commands
+    const resourceName = deployment.metadata?.name;
+    const namespace = deployment.metadata?.namespace;
+
+    troubleshooting.commands = [
+      `kubectl get deployment ${resourceName} -n ${namespace}`,
+      `kubectl describe deployment ${resourceName} -n ${namespace}`,
+      `kubectl get pods -n ${namespace} -l app=${resourceName}`,
+      `kubectl logs -f deployment/${resourceName} -n ${namespace}`
+    ];
+
+    // Add specific troubleshooting based on issues
+    if (insights.issues.length > 0) {
+      troubleshooting.quickChecks = [
+        'Check pod logs for error messages',
+        'Verify image availability and pull secrets',
+        'Check resource limits and requests',
+        'Verify environment variables and config maps'
+      ];
+
+      troubleshooting.nextSteps = insights.recommendations || [
+        'Review deployment configuration',
+        'Check cluster resources and capacity',
+        'Verify network policies and service mesh configuration'
+      ];
+    } else {
+      troubleshooting.quickChecks = [
+        'Deployment is healthy - all replicas running',
+        'Check service endpoints and connectivity',
+        'Monitor resource usage and performance'
+      ];
+    }
+
+    return troubleshooting;
   }
 
   async getHealth(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; message: string }> {

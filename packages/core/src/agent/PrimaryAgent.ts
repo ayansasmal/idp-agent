@@ -177,24 +177,32 @@ export class PrimaryAgent {
     context: RequestContext
   ): Promise<ExecutionPlan> {
     const steps: ExecutionStep[] = [];
-    const { platformAction } = intent;
+    const actions = intent.isMultiAction && intent.allActions ? intent.allActions : [intent.platformAction];
+    const executionOrder = intent.executionOrder || actions.map((_, index) => index);
 
-    // Always validate with safety module first and get risk assessment
-
+    // For multi-action requests, validate all actions together
     if (intent.requiresValidation) {
       steps.push({
         module: 'safety',
         action: 'validate',
-        parameters: { platformAction: platformAction },
+        parameters: { 
+          platformAction: intent.platformAction, // Primary action for backward compatibility
+          allActions: actions, // All actions for multi-action validation
+          isMultiAction: intent.isMultiAction || false
+        },
         dependsOn: [],
         critical: true,
       });
 
-      // Get risk assessment to determine if approval is needed
+      // Get risk assessment for all actions to determine overall approval needs
       steps.push({
         module: 'safety',
         action: 'assess-risk',
-        parameters: { platformAction: platformAction },
+        parameters: { 
+          platformAction: intent.platformAction,
+          allActions: actions,
+          isMultiAction: intent.isMultiAction || false
+        },
         dependsOn: ['safety'],
         critical: true,
       });
@@ -203,24 +211,43 @@ export class PrimaryAgent {
     // Defer approval decision until after safety assessment
     // We'll add the approval step dynamically during execution
 
-    // Execute the actual platform action
-    const executionDependencies = [];
-    if (intent.requiresValidation) {
-      executionDependencies.push('safety');
-      // approval dependency will be added dynamically if needed
-    }
+    // Execute platform actions in the specified order
+    executionOrder.forEach((actionIndex, orderIndex) => {
+      const action = actions[actionIndex];
+      const executionDependencies = [];
+      
+      if (intent.requiresValidation) {
+        executionDependencies.push('safety');
+        // approval dependency will be added dynamically if needed
+      }
+      
+      // Add dependency on previous action for sequential execution
+      if (orderIndex > 0) {
+        const prevActionIndex = executionOrder[orderIndex - 1];
+        const prevAction = actions[prevActionIndex];
+        const prevStepId = `${this.getModuleForAction(prevAction.action)}-${prevAction.action}`;
+        executionDependencies.push(prevStepId);
+      }
 
-    steps.push({
-      module: this.getModuleForAction(platformAction.action),
-      action: platformAction.action,
-      parameters: {
-        resourceType: platformAction.resourceType,
-        resourceName: platformAction.resourceName,
-        environment: platformAction.environment,
-        ...platformAction.parameters,
-      },
-      dependsOn: executionDependencies,
-      critical: true,
+      const stepId = `${this.getModuleForAction(action.action)}-${action.action}`;
+      
+      steps.push({
+        module: this.getModuleForAction(action.action),
+        action: action.action,
+        parameters: {
+          resourceType: action.resourceType,
+          resourceName: action.resourceName,
+          environment: action.environment,
+          ...action.parameters,
+          // Add context for multi-action scenarios
+          isPartOfMultiAction: intent.isMultiAction || false,
+          actionIndex: actionIndex,
+          totalActions: actions.length,
+        },
+        dependsOn: executionDependencies,
+        critical: true,
+        stepId: stepId, // Add step ID for dependency tracking
+      });
     });
 
     // Always audit the action
@@ -287,6 +314,11 @@ export class PrimaryAgent {
 
         results[step.module] = response;
         completedSteps.push(step.module);
+        
+        // Also track by stepId if available (for multi-action dependency tracking)
+        if (step.stepId) {
+          completedSteps.push(step.stepId);
+        }
 
         // Check if this was a risk assessment and we need to create an approval
         if (step.module === 'safety' && step.action === 'assess-risk' && response.success) {
@@ -957,6 +989,7 @@ interface ExecutionStep {
   parameters: Record<string, any>;
   dependsOn: string[];
   critical: boolean;
+  stepId?: string; // Optional step ID for dependency tracking
 }
 
 interface ExecutionPlan {

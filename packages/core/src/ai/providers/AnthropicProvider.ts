@@ -136,9 +136,9 @@ Context: {context}`,
     }
   ) {
     try {
-      // Schema for platform action analysis
+      // Schema for individual platform action
       const platformActionSchema = z.object({
-        action: z.enum(['deploy', 'scale', 'status', 'logs', 'delete', 'rollback']),
+        action: z.enum(['deploy', 'scale', 'status', 'logs', 'delete', 'rollback', 'port-forward']),
         resourceType: z.enum(['application', 'database', 'service', 'ingress']),
         resourceName: z.string().describe('Name of the resource to operate on'),
         environment: z.enum(['development', 'staging', 'production']),
@@ -150,23 +150,40 @@ Context: {context}`,
         confidence: z.number().min(0).max(1).describe('Confidence in this interpretation'),
       });
 
+      // Schema for multi-action analysis
+      const multiActionSchema = z.object({
+        actions: z.array(platformActionSchema).min(1).describe('List of platform actions to execute'),
+        isMultiAction: z.boolean().describe('Whether this request contains multiple actions'),
+        executionOrder: z.array(z.number()).describe('Order to execute actions (indices of actions array)'),
+        overallRiskLevel: z.enum(['low', 'medium', 'high', 'critical']).describe('Highest risk level among all actions'),
+        overallConfidence: z.number().min(0).max(1).describe('Overall confidence in the interpretation'),
+      });
+
       // Use structured output to ensure reliable parsing
-      const structuredModel = this.model.withStructuredOutput(platformActionSchema);
+      const structuredModel = this.model.withStructuredOutput(multiActionSchema);
 
       const result = await structuredModel.invoke([
         {
           role: 'system',
-          content: `Analyze the user's request and extract a structured platform action. Be conservative with risk assessment - when in doubt, assign higher risk levels.
+          content: `Analyze the user's request and extract structured platform actions. Handle both single and multi-action requests. Be conservative with risk assessment - when in doubt, assign higher risk levels.
 
 Environment context: ${context.environment}
 User permissions: ${context.permissions.join(', ')}
+
+Multi-Action Examples:
+- "Deploy nginx with 3 replicas and show me the URL" = deploy + status + port-forward
+- "What is the status of nginx and perform port forwarding to localhost:8080" = status + port-forward  
+- "Scale my api-gateway to 5 replicas and check its logs" = scale + logs
 
 Rules:
 - Only return actions you're confident about
 - If the request is unclear, set confidence < 0.7
 - Production operations should generally be high/critical risk
 - Delete operations are always high/critical risk
-- Include specific, actionable rollback plans`,
+- Include specific, actionable rollback plans
+- For multi-actions, set executionOrder based on logical dependencies
+- Set isMultiAction=true if multiple distinct actions are requested
+- overallRiskLevel should be the highest risk among all actions`,
         },
         {
           role: 'user',
@@ -174,11 +191,25 @@ Rules:
         },
       ]);
 
+      // Return the primary action for backward compatibility, but include all actions
+      const primaryAction = result.actions[0];
+      
       return {
-        platformAction: result,
+        platformAction: primaryAction,
+        allActions: result.actions, // Include all actions for multi-action support
+        isMultiAction: result.isMultiAction,
+        executionOrder: result.executionOrder,
         requiresValidation: true,
-        requiresApproval: result.riskLevel === 'medium' || result.riskLevel === 'high' || result.riskLevel === 'critical',
-        additionalContext: { originalInput: userInput, context },
+        requiresApproval: result.overallRiskLevel === 'medium' || result.overallRiskLevel === 'high' || result.overallRiskLevel === 'critical',
+        additionalContext: { 
+          originalInput: userInput, 
+          context,
+          multiActionData: result.isMultiAction ? {
+            totalActions: result.actions.length,
+            executionOrder: result.executionOrder,
+            overallRiskLevel: result.overallRiskLevel
+          } : undefined
+        },
       };
     } catch (error) {
       throw new AIError(

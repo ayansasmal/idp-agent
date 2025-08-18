@@ -3,13 +3,15 @@ import type { ChatMessage } from "@/lib/types";
 import { useState } from "react";
 import ExpandableDetails from "./ExpandableDetails";
 import JsonViewer from "./JsonViewer";
+import ParameterPrompt from "./ParameterPrompt";
 
 interface MessageListProps {
   messages: ChatMessage[];
   onNamespaceSelect?: (namespace: string, originalMessage: string) => void;
+  onParameterSubmit?: (completedRequest: string) => void;
 }
 
-export default function MessageList({ messages, onNamespaceSelect }: MessageListProps) {
+export default function MessageList({ messages, onNamespaceSelect, onParameterSubmit }: MessageListProps) {
   return (
     <div className="space-y-4">
       {messages.map((message) => (
@@ -82,6 +84,23 @@ export default function MessageList({ messages, onNamespaceSelect }: MessageList
                       onNamespaceSelect(namespace, originalAction);
                     }
                   }}
+                />
+              )}
+
+              {/* Parameter Validation Prompt */}
+              {message.role === "assistant" && 
+               message.metadata?.requiresUserInput && 
+               message.metadata?.missingParameters && 
+               message.metadata.missingParameters.length > 0 && (
+                <ParameterPrompt
+                  missingParameters={message.metadata.missingParameters}
+                  originalRequest={message.rawData?.originalRequest || "your request"}
+                  onSubmit={(completedRequest) => {
+                    if (onParameterSubmit) {
+                      onParameterSubmit(completedRequest);
+                    }
+                  }}
+                  className="mt-3"
                 />
               )}
 

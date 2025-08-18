@@ -64,6 +64,9 @@ export const PlatformActionSchema = z.object({
 
 export const IntentAnalysisSchema = z.object({
   platformAction: PlatformActionSchema,
+  allActions: z.array(PlatformActionSchema).optional(), // For multi-action support
+  isMultiAction: z.boolean().optional().default(false),
+  executionOrder: z.array(z.number()).optional(), // Order to execute actions
   confidence: z.number().min(0).max(1),
   requiresValidation: z.boolean(),
   requiresApproval: z.boolean(),
