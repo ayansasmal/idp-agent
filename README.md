@@ -1,6 +1,6 @@
 # AI-Powered Integrated Developer Platform
 
-> **Current Phase: Phase 2 Complete - Production-Ready Web Application + Approval Workflow**
+> **Current Phase: Phase 2.5 Complete - Production-Ready Web Application + Fixed Approval Workflow**
 
 ## Overview
 
@@ -41,6 +41,9 @@ docker-compose up -d
 npx prisma migrate dev
 npx prisma generate
 
+# Setup DynamoDB tables for approval persistence
+./scripts/create-dynamodb-tables.sh
+
 # Start development (web app with integrated core agent)
 npm run dev
 ```
@@ -78,6 +81,10 @@ open http://localhost:3002
 
 ### 💬 Chat Interface ✅
 - [x] Natural language interaction with AI agent
+- [x] **Dual-Response System**: Short status + rich detailed content
+- [x] **Expandable Markdown**: Pod status, replica counts, health conditions
+- [x] **Interactive JSON Viewer**: Copy, export, and explore raw data
+- [x] **Namespace Selection**: Smart dropdowns for multi-namespace clusters
 - [x] Real-time message display with approval indicators
 - [x] Error handling and loading states
 - [x] Mobile-responsive design
@@ -85,6 +92,9 @@ open http://localhost:3002
 
 ### 🔐 Approval Workflow ✅
 - [x] **Risk-based routing** (low/medium/high/critical)
+- [x] **Execution halting** - Operations stop when approval required (no unauthorized execution)
+- [x] **DynamoDB persistence** - Approval requests persist across chat sessions
+- [x] **Permission-based triggers** - Missing permissions automatically create approval workflows
 - [x] **Human review system** with detailed approval cards
 - [x] **Approval actions** (approve/reject/delete with notes)
 - [x] **Real-time status** updates with optimistic UI
@@ -166,6 +176,11 @@ AI_PRIMARY_PROVIDER=anthropic
 DATABASE_URL=postgresql://user:pass@localhost:5432/ai_idp
 REDIS_URL=redis://localhost:6379
 
+# DynamoDB (for approval persistence)
+AWS_REGION=us-east-1
+AWS_ENDPOINT=http://localhost:4566
+APPROVALS_TABLE_NAME=ai-idp-approvals
+
 # Kubernetes
 KUBECONFIG=~/.kube/config
 
@@ -181,10 +196,26 @@ Visit **http://localhost:3002** for the complete experience:
 
 **Chat Interface** (`/chat`):
 ```
-👤 "Deploy my payment-service to production with 5 replicas"
-🤖 "Due to the high risk level of this operation, it requires human approval before execution.
+👤 "Show me the status of my nginx deployment"
+🤖 "✅ Successfully retrieved status for nginx"
+
+   [📊 View Details] ← Click to expand
    
-   ⚠️ Approval Required: View approval details: Approval APR-12345"
+   ## 🚀 Deployment Status
+   **Service:** nginx
+   **Namespace:** default  
+   **Replicas:** 3/3 ready (3 available)
+   
+   ### 📊 Pod Status
+   - nginx-abc123: Running ✅
+   - nginx-def456: Running ✅ 
+   - nginx-ghi789: Running ✅
+   
+   ### ⚙️ Deployment Details
+   - Strategy: RollingUpdate
+   - Image: nginx:latest
+   
+   [🔍 Raw Data] ← JSON viewer with copy/export
 ```
 
 **Approval Dashboard** (`/approvals`):

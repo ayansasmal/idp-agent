@@ -27,6 +27,8 @@ export const ChatMessageSchema = z.object({
   content: z.string(),
   timestamp: z.string(),
   metadata: z.record(z.any()).optional(),
+  detailedContent: z.string().optional(),
+  rawData: z.any().optional(),
 });
 
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;

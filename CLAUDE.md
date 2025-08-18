@@ -38,6 +38,8 @@ This is an **AI-Powered Integrated Developer Platform (IDP)** that uses conversa
    - Deploy, scale, status, logs, rollback operations
    - Kubernetes client wrapper and validation
    - Manifest generation and monitoring
+   - **Rich Response Formatting**: Generates detailed markdown responses and structured data
+   - **Self-contained UI Logic**: Owns presentation layer for Kubernetes operations
 
 2. **Safety Module** → Security/Safety Agent
    - Policy compliance and risk assessment
@@ -46,6 +48,8 @@ This is an **AI-Powered Integrated Developer Platform (IDP)** that uses conversa
 
 3. **Approval Module** → Workflow Agent
    - Human-in-the-loop approval workflows
+   - **DynamoDB Persistent Storage**: Approval requests persist across chat sessions
+   - **Risk-Based Execution Halting**: Operations halt when approval required
    - Slack integration and notifications
    - Risk-based routing and escalation
 
@@ -59,6 +63,39 @@ This is an **AI-Powered Integrated Developer Platform (IDP)** that uses conversa
 - **Fallback**: OpenAI GPT-4 
 - **Easy switching**: Change environment variables only
 - **Structured responses**: Function calling for reliable operations
+
+### Rich Response Architecture
+
+#### Module-Level Response Formatting
+Each module now owns its response formatting, creating a clean separation of concerns:
+
+```typescript
+interface ModuleResponse {
+  success: boolean;
+  message: string;           // Short status message
+  detailedResponse?: string; // Rich markdown content  
+  data: any;                // Structured data
+  metadata: {
+    module: string;
+    action: string;
+    hasDetailedResponse: boolean;
+  };
+}
+```
+
+#### Dual-Response System
+**Short Status**: `✅ Successfully deployed nginx to staging`
+**Detailed Content**: Rich markdown with:
+- Pod status and replica counts
+- Health conditions and deployment details  
+- Troubleshooting commands and next steps
+- Expandable JSON viewer for raw data
+
+#### Benefits of Module-Owned Formatting
+- **Decoupled**: Each module controls its own UI presentation
+- **Scalable**: New modules automatically handle their formatting
+- **Maintainable**: Domain knowledge stays with formatting logic
+- **Future-Ready**: Zero changes needed when extracting to agents
 
 ## Technology Stack
 
@@ -184,8 +221,10 @@ All platform operations go through comprehensive safety validation:
 
 - **Reality Checks**: Validate against actual platform state
 - **Policy Compliance**: Check RBAC, quotas, environment rules  
-- **Risk Assessment**: Conservative risk evaluation
-- **Human Approval**: Required for medium/high-risk operations
+- **Risk Assessment**: Conservative risk evaluation with execution halting
+- **Permission Validation**: Missing permissions trigger approval workflows
+- **Human Approval**: Required for medium/high-risk operations with execution halt
+- **Execution Control**: Operations stop immediately when approval required
 - **Audit Trail**: Complete logging for compliance
 
 ### 4. Conversational Interface
@@ -214,6 +253,10 @@ interface PlatformAction {
 
 ### ✅ Chat Interface (`/chat`)
 - Natural language interaction with AI agent
+- **Dual-Response Display**: Short status + expandable detailed content
+- **Rich Markdown Rendering**: Pod status, replica counts, health conditions
+- **Interactive JSON Viewer**: Copy, export, and explore raw data
+- **Namespace Selection UI**: Interactive dropdowns for multi-namespace clusters
 - Real-time message display with timestamps
 - Support for approval metadata in responses
 - Error handling and loading states
@@ -221,6 +264,9 @@ interface PlatformAction {
 
 ### ✅ Approval Workflow (`/approvals`)
 - **Risk Assessment**: Automatic classification (low/medium/high/critical)
+- **Execution Halting**: Operations stop when approval required (no unauthorized execution)
+- **Persistent Storage**: DynamoDB-backed approval persistence across sessions
+- **Permission-Based Approval**: Missing permissions trigger approval workflows
 - **Human Review**: Detailed approval cards with all context
 - **Approval Actions**: Approve, reject, and delete with review notes
 - **Status Tracking**: Real-time status updates with optimistic UI
@@ -281,6 +327,31 @@ npm run dev:standalone  # Web app with embedded core agent
 - **User Experience**: Mobile-responsive, error handling, loading states
 - **Technical Excellence**: Production build, deployment ready, comprehensive documentation
 
+### ✅ Phase 2.5: Approval Workflow Enhancement (COMPLETE)
+**Goal**: Fix execution flow to prevent unauthorized operations when approval required
+
+**Problem Solved:**
+- **Execution Race Condition**: Previously, when approval was required, the system would create an approval request but still continue executing the main operation, leading to unauthorized operations failing with permission errors.
+
+**Solution Implemented:**
+- **Execution Halting**: Modified `PrimaryAgent.ts` execution flow to immediately halt when approval is created
+- **Proper State Management**: Added `approvalRequired`, `approvalId`, and `halted` flags to `ExecutionResult`
+- **Enhanced Response Generation**: Rich approval-pending responses with detailed risk assessment and next steps
+- **DynamoDB Persistence**: Complete persistent storage for approval requests using LocalStack/DynamoDB
+
+**Technical Details:**
+- **File**: `packages/core/src/agent/PrimaryAgent.ts` lines 315-332
+- **Before**: System tried to update step dependencies mid-execution (too late)
+- **After**: System returns immediately when approval created, halting further execution
+- **Result**: Users see "⏳ Approval Required" instead of "❌ Operation Failed"
+
+**Key Improvements:**
+- ✅ No unauthorized operations execute when approval required
+- ✅ Rich approval-pending UI with risk breakdown and next steps  
+- ✅ Persistent approval storage across chat sessions
+- ✅ Permission-based approval triggering (missing permissions → approval workflow)
+- ✅ Complete type safety and error handling
+
 ### 🎯 Phase 3: Agent Extraction (Future)
 **Goal**: Convert modules to standalone agents without code changes
 
@@ -322,15 +393,23 @@ npm run dev:standalone  # Web app with embedded core agent
 ```bash
 # Deployment
 "Deploy my user-auth service to staging with PostgreSQL"
+# → Short: ✅ Successfully deployed user-auth to staging
+# → Details: Pod status, replica counts, monitoring commands
 
 # Scaling  
 "Scale my api-gateway to handle 5000 users"
+# → Short: ✅ Successfully scaled api-gateway to 5 replicas  
+# → Details: Scaling timeline, monitoring commands, expected capacity
 
 # Troubleshooting
 "Why is my payment-service responding slowly?"
+# → Short: ✅ Retrieved status for payment-service
+# → Details: Pod health, resource usage, error logs, troubleshooting steps
 
 # Status
 "Show me the health of all my production services"
+# → Short: ✅ Listed resources for production
+# → Details: Service health matrix, resource utilization, issue summary
 ```
 
 ### Approval Workflows
@@ -343,14 +422,29 @@ npm run dev:standalone  # Web app with embedded core agent
 
 ### Module Development
 ```typescript
-// Adding new module capabilities
+// Adding new module capabilities with rich response formatting
 class KubernetesModule extends BaseModule {
     capabilities = ['deploy', 'scale', 'status', 'logs', 'rollback'];
     
-    async process(request: ModuleRequest): Promise<ModuleResponse> {
-        // Module logic here
-        // When extracted to agent: zero code changes needed
+    async handleStatus(params: any): Promise<ModuleResponse> {
+        // Execute Kubernetes operation
+        const result = await this.k8sApi.readNamespacedDeployment(/*...*/);
+        
+        // Module owns its response formatting
+        return this.createFormattedResponse(
+            true,
+            `Status for ${resourceName} in namespace ${namespace}`,
+            { deployment: result.body, pods, replicas },
+            'status',
+            resourceName,
+            namespace
+        );
+        // Returns: { message, detailedResponse, data, metadata }
+        // detailedResponse = rich markdown with pod status, health, etc.
     }
+    
+    // When extracted to agent: zero code changes needed
+    // Modules are self-contained with their formatting logic
 }
 ```
 

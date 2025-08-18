@@ -26,19 +26,25 @@ export default function Chat() {
     permissions: ["read", "write", "deploy"],
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const handleNamespaceSelect = async (namespace: string, originalMessage: string) => {
+    // Find the last user message to resubmit with namespace
+    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+    const messageToResubmit = lastUserMessage?.content || originalMessage;
+    
+    // Resubmit the original request with the selected namespace
+    const enhancedMessage = `${messageToResubmit} (use namespace: ${namespace})`;
+    await submitMessage(enhancedMessage);
+  };
 
+  const submitMessage = async (messageContent: string) => {
     const userMessage: ChatMessage = {
       id: nanoid(),
       role: "user",
-      content: input.trim(),
+      content: messageContent,
       timestamp: new Date().toISOString(),
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInput("");
     setIsLoading(true);
     setError(null);
 
@@ -66,6 +72,8 @@ export default function Chat() {
         content: assistantMessage.content,
         timestamp: new Date().toISOString(),
         metadata: assistantMessage.metadata,
+        detailedContent: assistantMessage.detailedContent,
+        rawData: assistantMessage.rawData,
       };
 
       setMessages(prev => [...prev, chatMessage]);
@@ -85,6 +93,16 @@ export default function Chat() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    const messageContent = input.trim();
+    setInput("");
+    await submitMessage(messageContent);
+
   };
 
   return (
@@ -107,7 +125,7 @@ export default function Chat() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6">
-        <MessageList messages={messages} />
+        <MessageList messages={messages} onNamespaceSelect={handleNamespaceSelect} />
         {error && (
           <div className="mt-4 rounded-lg bg-red-50 border border-red-200 p-4">
             <div className="flex">

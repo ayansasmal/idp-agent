@@ -1,63 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApprovalSchema, type Approval } from "@/lib/types";
+import { PrimaryAgent, createAgent, RequestContext } from "@ai-idp/core";
 import { z } from "zod";
 
-// In-memory store for demo - replace with database in production
-let approvals: Approval[] = [
-  {
-    id: "demo-approval-1",
-    state: "PENDING",
-    resource: "my-app",
-    action: "deploy",
-    parameters: { 
-      environment: "staging",
-      image: "my-app:v1.2.0",
-      replicas: 3,
-    },
-    diff: `+ Deploy my-app:v1.2.0 to staging
-+ Scale to 3 replicas
-+ Add PostgreSQL database connection`,
-    explanation: "Deploy new version of my-app to staging environment with database connection",
-    rollbackPlan: "Use kubectl rollout undo deployment/my-app to roll back to previous version",
-    riskLevel: "medium",
-    estimatedImpact: "Temporary downtime during deployment (~30 seconds), affects staging users only",
-    confidence: 0.95,
-    createdAt: new Date().toISOString(),
-    createdBy: "web-user",
-  },
-  {
-    id: "demo-approval-2", 
-    state: "APPROVED",
-    resource: "payment-service",
-    action: "scale",
+// Global agent instance
+let primaryAgent: PrimaryAgent | null = null;
+
+// Initialize agent on startup
+async function getAgent(): Promise<PrimaryAgent> {
+  if (!primaryAgent) {
+    try {
+      primaryAgent = await createAgent();
+      console.log('Primary Agent initialized for approvals API');
+    } catch (error) {
+      console.error('Failed to initialize Primary Agent for approvals:', error);
+      throw new Error('Agent initialization failed');
+    }
+  }
+  return primaryAgent;
+}
+
+// Convert core approval format to web app format
+function convertToWebApproval(coreApproval: any): Approval {
+  return {
+    id: coreApproval.id,
+    state: coreApproval.status === 'pending' ? 'PENDING' : 
+           coreApproval.status === 'approved' ? 'APPROVED' : 
+           coreApproval.status === 'rejected' ? 'REJECTED' : 'EXPIRED',
+    resource: coreApproval.platformAction.resourceName,
+    action: coreApproval.platformAction.action,
     parameters: {
-      environment: "production",
-      replicas: 5,
+      environment: coreApproval.platformAction.environment,
+      ...coreApproval.platformAction.parameters,
     },
-    diff: `+ Scale payment-service from 3 to 5 replicas
-+ Update HPA maxReplicas to 10`,
-    explanation: "Scale payment service to handle increased traffic during Black Friday",
-    rollbackPlan: "Scale back to 3 replicas: kubectl scale deployment payment-service --replicas=3",
-    riskLevel: "low", 
-    estimatedImpact: "Improved performance, no downtime expected",
-    confidence: 0.98,
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    createdBy: "prod-user",
-    reviewedAt: new Date().toISOString(),
-    reviewedBy: "ops-team",
-    reviewNotes: "Approved for Black Friday traffic scaling",
-  },
-];
+    diff: `${coreApproval.platformAction.action} ${coreApproval.platformAction.resourceName} in ${coreApproval.platformAction.environment}`,
+    explanation: coreApproval.platformAction.explanation || coreApproval.justification,
+    rollbackPlan: coreApproval.platformAction.rollbackPlan,
+    riskLevel: coreApproval.riskLevel,
+    estimatedImpact: coreApproval.platformAction.estimatedImpact,
+    confidence: coreApproval.confidence || 0.85,
+    createdAt: coreApproval.createdAt,
+    createdBy: coreApproval.context.userId,
+    reviewedAt: coreApproval.approvedAt || coreApproval.rejectedAt,
+    reviewedBy: coreApproval.approvals?.[0]?.approverId || coreApproval.rejections?.[0]?.approverId,
+    reviewNotes: coreApproval.approvals?.[0]?.comments || coreApproval.rejections?.[0]?.comments,
+  };
+}
 
 export async function GET() {
   try {
+    const agent = await getAgent();
+    
+    // Create a dummy context for the approval module request
+    const context: RequestContext = {
+      userId: "web-user",
+      sessionId: `web-session-${Date.now()}`,
+      originalRequest: "list pending approvals",
+      environment: "development",
+      permissions: ["read", "write", "deploy"],
+      auditTrail: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    // Request pending approvals from the core agent
+    const result = await agent.processRequest("list pending approvals", context);
+    
+    if (!result.success) {
+      throw new Error(result.message || "Failed to fetch approvals from core agent");
+    }
+
+    // Convert core approval format to web app format
+    const coreApprovals = result.data?.pendingApprovals || [];
+    const webApprovals = coreApprovals.map(convertToWebApproval);
+    
     // Sort by creation date, newest first
-    const sortedApprovals = [...approvals].sort((a, b) => 
+    const sortedApprovals = webApprovals.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     
     return NextResponse.json(sortedApprovals);
   } catch (error: any) {
+    console.error("Failed to fetch approvals from core agent:", error);
     return NextResponse.json(
       { error: "Failed to fetch approvals", message: error.message },
       { status: 500 }
@@ -65,42 +88,8 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    
-    // Create new approval
-    const newApproval: Approval = {
-      id: `approval-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      state: "PENDING",
-      createdAt: new Date().toISOString(),
-      createdBy: body.createdBy || "web-user",
-      ...body,
-    };
-
-    // Validate the approval object
-    const validatedApproval = ApprovalSchema.parse(newApproval);
-    
-    // Add to store
-    approvals.unshift(validatedApproval);
-    
-    return NextResponse.json(validatedApproval, { status: 201 });
-  } catch (error: any) {
-    console.error("Failed to create approval:", error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Invalid approval data", details: error.errors },
-        { status: 400 }
-      );
-    }
-    
-    return NextResponse.json(
-      { error: "Failed to create approval", message: error.message },
-      { status: 500 }
-    );
-  }
-}
+// POST method removed - approvals are now created automatically by the core agent
+// when operations require approval based on risk assessment
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -117,29 +106,55 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { state, reviewNotes, reviewedBy } = body;
     
-    // Find and update approval
-    const approvalIndex = approvals.findIndex(a => a.id === id);
-    if (approvalIndex === -1) {
+    const agent = await getAgent();
+    
+    // Create context for the approval action
+    const context: RequestContext = {
+      userId: reviewedBy || "web-user",
+      sessionId: `web-session-${Date.now()}`,
+      originalRequest: `${state.toLowerCase()} approval ${id}`,
+      environment: "development",
+      permissions: ["read", "write", "deploy", "approve"],
+      auditTrail: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    let result;
+    
+    if (state === "APPROVED") {
+      // Approve the request using core agent
+      result = await agent.processRequest(
+        `approve approval ${id} with comments: ${reviewNotes || "Approved via web interface"}`,
+        context
+      );
+    } else if (state === "REJECTED") {
+      // Reject the request using core agent
+      result = await agent.processRequest(
+        `reject approval ${id} with reason: ${reviewNotes || "Rejected via web interface"}`,
+        context
+      );
+    } else {
       return NextResponse.json(
-        { error: "Approval not found" },
-        { status: 404 }
+        { error: "Invalid state. Must be APPROVED or REJECTED" },
+        { status: 400 }
       );
     }
+
+    if (!result.success) {
+      throw new Error(result.message || "Failed to update approval");
+    }
+
+    // Fetch the updated approval from core agent
+    const updatedResult = await agent.processRequest(`check approval ${id}`, context);
     
-    // Update the approval
-    approvals[approvalIndex] = {
-      ...approvals[approvalIndex],
-      state: state || approvals[approvalIndex].state,
-      reviewedAt: new Date().toISOString(),
-      reviewedBy: reviewedBy || "web-user",
-      reviewNotes: reviewNotes || approvals[approvalIndex].reviewNotes,
-    };
+    if (!updatedResult.success) {
+      throw new Error("Failed to fetch updated approval");
+    }
+
+    // Convert to web format and return
+    const webApproval = convertToWebApproval(updatedResult.data);
     
-    // Validate updated approval
-    const updatedApproval = ApprovalSchema.parse(approvals[approvalIndex]);
-    approvals[approvalIndex] = updatedApproval;
-    
-    return NextResponse.json(updatedApproval);
+    return NextResponse.json(webApproval);
   } catch (error: any) {
     console.error("Failed to update approval:", error);
     
@@ -169,21 +184,12 @@ export async function DELETE(req: NextRequest) {
       );
     }
     
-    // Find and remove approval
-    const approvalIndex = approvals.findIndex(a => a.id === id);
-    if (approvalIndex === -1) {
-      return NextResponse.json(
-        { error: "Approval not found" },
-        { status: 404 }
-      );
-    }
-    
-    const deletedApproval = approvals.splice(approvalIndex, 1)[0];
-    
-    return NextResponse.json({ 
-      message: "Approval deleted successfully",
-      approval: deletedApproval,
-    });
+    // For now, we'll keep DELETE as a placeholder
+    // In a real system, you might want to mark approvals as cancelled rather than delete them
+    return NextResponse.json(
+      { error: "Approval deletion not implemented. Use PATCH to update status instead." },
+      { status: 501 }
+    );
   } catch (error: any) {
     console.error("Failed to delete approval:", error);
     

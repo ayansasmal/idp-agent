@@ -40,12 +40,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Extract namespace from user input if provided
+    let userInput = lastMessage.content;
+    let specificNamespace = undefined;
+    
+    // Check if user input contains namespace specification
+    const namespaceMatch = userInput.match(/\(use namespace:\s*([^)]+)\)/);
+    if (namespaceMatch) {
+      specificNamespace = namespaceMatch[1].trim();
+      // Remove the namespace specification from the user input
+      userInput = userInput.replace(/\s*\(use namespace:[^)]+\)\s*/, '').trim();
+    }
+
     // Validate request context
     const operationRequest = OperationRequestSchema.parse({
-      userInput: lastMessage.content,
+      userInput: userInput,
       context: context || {
         userId: "web-user",
-        environment: "development",
+        environment: specificNamespace || "development", // Use specific namespace if provided
         permissions: ["read", "write", "deploy"],
       },
     });
@@ -59,6 +71,8 @@ export async function POST(req: NextRequest) {
       permissions: operationRequest.context.permissions,
       auditTrail: [],
       timestamp: new Date().toISOString(),
+      // Add namespace info for debugging
+      ...(specificNamespace && { specificNamespace })
     };
 
     // Get the core agent instance
@@ -67,40 +81,9 @@ export async function POST(req: NextRequest) {
     // Process the request with the real core agent
     const result = await agent.processRequest(operationRequest.userInput, requestContext as RequestContext);
     
-    // Check if the result has actions that require approval
-    let approvalId = result.metadata?.approvalId;
-    const hasApprovalRequiredActions = result.actions?.some((action: any) => 
-      action.riskLevel === 'high' || action.riskLevel === 'critical'
-    );
-    
-    if (hasApprovalRequiredActions && result.actions && result.actions.length > 0 && !approvalId) {
-      const primaryAction = result.actions[0]; // Take the first action for approval
-      
-      // Create approval record via our API
-      const approvalResponse = await fetch(new URL('/api/approvals', req.url), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          resource: primaryAction.resourceName,
-          action: primaryAction.action,
-          parameters: primaryAction.parameters,
-          diff: `Proposed ${primaryAction.action} operation on ${primaryAction.resourceName}:\n\n${primaryAction.explanation}`,
-          explanation: primaryAction.explanation,
-          rollbackPlan: primaryAction.rollbackPlan,
-          riskLevel: primaryAction.riskLevel,
-          estimatedImpact: primaryAction.estimatedImpact,
-          confidence: result.metadata?.confidence || 0.85,
-          createdBy: requestContext.userId,
-        }),
-      });
-      
-      if (approvalResponse.ok) {
-        const approval = await approvalResponse.json();
-        approvalId = approval.id;
-      }
-    }
+    // Check if the result has approval metadata from the core agent
+    const approvalId = result.metadata?.approvalId;
+    const hasApprovalRequiredActions = !!approvalId;
     
     // Generate response content from the agent's message
     let responseContent = result.message || "Operation processed successfully";
@@ -112,11 +95,13 @@ export async function POST(req: NextRequest) {
       responseContent += `\n\n⚠️ **Approval Required**: This operation requires human approval due to ${riskLevel} risk level. View approval details: [Approval ${approvalId}](/approvals?id=${approvalId})`;
     }
     
-    // Return the response in chat format
+    // Return the response in chat format with detailed content
     return NextResponse.json({
       id: `msg-${Date.now()}`,
       role: "assistant",
       content: responseContent,
+      detailedContent: result.detailedResponse,
+      rawData: result.data,
       metadata: {
         requiresApproval: hasApprovalRequiredActions || false,
         approvalId: approvalId,
@@ -124,11 +109,19 @@ export async function POST(req: NextRequest) {
         riskLevel: result.actions?.[0]?.riskLevel || 'low',
         success: result.success,
         actions: result.actions?.length || 0,
+        hasDetailedContent: !!result.detailedResponse,
+        hasRawData: !!result.data,
       },
     });
 
   } catch (error: any) {
     console.error("Agent API error:", error);
+    console.error("Error stack:", error.stack);
+    console.error("Error details:", {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -141,6 +134,7 @@ export async function POST(req: NextRequest) {
       { 
         error: "Internal server error", 
         message: error.message || "Unknown error",
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       },
       { status: 500 }
     );
