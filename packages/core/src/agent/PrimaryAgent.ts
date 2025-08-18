@@ -155,7 +155,7 @@ export class PrimaryAgent {
   }
 
   /**
-   * Create execution plan based on intent analysis
+   * Create execution plan based on intent analysis and safety assessment
    */
   private async createExecutionPlan(
     intent: IntentAnalysis,
@@ -164,7 +164,8 @@ export class PrimaryAgent {
     const steps: ExecutionStep[] = [];
     const { platformAction } = intent;
 
-    // Always validate with safety module first
+    // Always validate with safety module first and get risk assessment
+
     if (intent.requiresValidation) {
       steps.push({
         module: 'safety',
@@ -173,27 +174,26 @@ export class PrimaryAgent {
         dependsOn: [],
         critical: true,
       });
-    }
 
-    // Human approval for high-risk actions
-    if (intent.requiresApproval) {
+      // Get risk assessment to determine if approval is needed
       steps.push({
-        module: 'approval',
-        action: 'request-approval',
-        parameters: {
-          platformAction: platformAction,
-          riskLevel: platformAction.riskLevel,
-          justification: await this.aiCore.generateApprovalSummary(platformAction),
-        },
-        dependsOn: intent.requiresValidation ? ['safety'] : [],
+        module: 'safety',
+        action: 'assess-risk',
+        parameters: { platformAction: platformAction },
+        dependsOn: ['safety'],
         critical: true,
       });
     }
 
+    // Defer approval decision until after safety assessment
+    // We'll add the approval step dynamically during execution
+
     // Execute the actual platform action
     const executionDependencies = [];
-    if (intent.requiresValidation) executionDependencies.push('safety');
-    if (intent.requiresApproval) executionDependencies.push('approval');
+    if (intent.requiresValidation) {
+      executionDependencies.push('safety');
+      // approval dependency will be added dynamically if needed
+    }
 
     steps.push({
       module: this.getModuleForAction(platformAction.action),
@@ -223,13 +223,13 @@ export class PrimaryAgent {
 
     return {
       steps,
-      requiresApproval: intent.requiresApproval,
+      requiresApproval: intent.requiresApproval, // Initial value, will be updated based on safety assessment
       riskLevel: platformAction.riskLevel,
     };
   }
 
   /**
-   * Execute the planned steps with dependency management
+   * Execute the planned steps with dependency management and dynamic approval creation
    */
   private async executePlan(
     plan: ExecutionPlan,
@@ -273,6 +273,73 @@ export class PrimaryAgent {
         results[step.module] = response;
         completedSteps.push(step.module);
 
+        // Check if this was a risk assessment and we need to create an approval
+        if (step.module === 'safety' && step.action === 'assess-risk' && response.success) {
+          const riskData = response.data;
+          const riskLevel = riskData?.riskLevel;
+          const needsApproval = riskData?.requiresApproval;
+
+          logger.info('Safety risk assessment completed', {
+            riskLevel,
+            requiresApproval: needsApproval,
+          });
+
+          // Create approval request for medium/high/critical risk operations
+          if (needsApproval || ['medium', 'high', 'critical'].includes(riskLevel)) {
+            logger.info('Creating approval request based on safety assessment', { riskLevel });
+            
+            try {
+              const approvalRequest: ModuleRequest = {
+                requestId: uuidv4(),
+                module: 'approval',
+                action: 'request-approval',
+                parameters: {
+                  platformAction: step.parameters.platformAction,
+                  riskLevel: riskLevel,
+                  justification: await this.aiCore.generateApprovalSummary(step.parameters.platformAction),
+                  safetyAssessment: riskData,
+                },
+                context,
+                priority: 'normal',
+              };
+
+              const approvalResponse = await this.communication.sendRequest(approvalRequest);
+              results['approval'] = approvalResponse;
+              completedSteps.push('approval');
+
+              logger.info('Approval request created successfully', {
+                approvalId: approvalResponse.data?.id,
+                success: approvalResponse.success,
+              });
+
+              // HALT EXECUTION: Do not proceed with main action when approval is required
+              // Return immediately with approval-pending status
+              const platformAction = step.parameters.platformAction;
+              logger.info('Halting execution - approval required before proceeding', {
+                approvalId: approvalResponse.data?.approvalId,
+                platformAction: platformAction.action,
+                resource: platformAction.resourceName
+              });
+
+              // Mark this as successful completion with approval pending
+              return {
+                success: true,
+                results,
+                errors,
+                completedSteps,
+                approvalRequired: true,
+                approvalId: approvalResponse.data?.approvalId,
+                halted: true // Flag to indicate execution was intentionally halted
+              };
+
+            } catch (approvalError) {
+              logger.error('Failed to create approval request', approvalError);
+              errors.push(`Failed to create approval request: ${approvalError instanceof Error ? approvalError.message : String(approvalError)}`);
+              break;
+            }
+          }
+        }
+
         if (!response.success && step.critical) {
           errors.push(`Critical step failed: ${step.module}.${step.action}: ${response.errors.join(', ')}`);
           break; // Stop execution on critical failure
@@ -304,7 +371,7 @@ export class PrimaryAgent {
   }
 
   /**
-   * Generate user-friendly response
+   * Generate user-friendly response by passing through module responses
    */
   private async generateUserResponse(
     result: ExecutionResult,
@@ -313,29 +380,130 @@ export class PrimaryAgent {
   ): Promise<AgentResponse> {
     const { platformAction } = intent;
 
-    if (result.success) {
-      // Successful execution
-      const message = `✅ Successfully ${platformAction.action}ed ${platformAction.resourceName} in ${platformAction.environment}`;
+    if (result.success && result.results) {
+      // Check if execution was halted due to approval requirement
+      if (result.approvalRequired && result.halted) {
+        const approvalResponse = result.results['approval'];
+        const approvalId = approvalResponse?.data?.approvalId || approvalResponse?.data?.id;
+        
+        const message = `⏳ Approval required for ${platformAction.action} operation on ${platformAction.resourceName}`;
+        
+        const detailedResponse = `## ⏳ Approval Required
+
+**Action:** ${platformAction.action}  
+**Resource:** ${platformAction.resourceName}  
+**Environment:** ${platformAction.environment}  
+**Risk Level:** ${result.results['safety']?.result?.riskLevel || 'medium'}
+
+### 🔒 Why Approval is Required
+${result.results['safety']?.result?.riskFactors?.map((factor: any) => 
+  `- **${factor.factor}**: ${factor.description} (${factor.level} risk)`
+).join('\n') || 'Operation requires approval due to security policies'}
+
+### 📋 Approval Details
+- **Approval ID:** \`${approvalId}\`
+- **Status:** Pending Review
+- **Required Approvers:** ${approvalResponse?.data?.requirements?.approvers?.join(', ') || 'Platform administrators'}
+- **Timeout:** ${approvalResponse?.data?.requirements?.timeoutMinutes || 60} minutes
+
+### 🚀 Next Steps
+1. Wait for approval from authorized personnel
+2. Once approved, the operation will proceed automatically
+3. You can check approval status in the Approvals section
+
+### 🛡️ Safety Assessment
+${result.results['safety']?.result?.mitigations?.map((mitigation: string) => `- ${mitigation}`).join('\n') || ''}`;
+
+        return AgentResponseSchema.parse({
+          success: true,
+          message,
+          detailedResponse,
+          data: {
+            approvalId,
+            status: 'approval-required',
+            platformAction,
+            safety: result.results['safety']?.result,
+            approval: approvalResponse?.data
+          },
+          actions: [platformAction],
+          metadata: {
+            originalInput,
+            executionSteps: result.completedSteps,
+            confidence: intent.confidence,
+            module: 'approval',
+            action: 'request-approval',
+            approvalId: approvalId,
+            halted: true,
+            approvalRequired: true
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Normal successful execution (no approval required)
+      // Find the primary module response (not safety, approval, or audit)
+      const moduleResponse = result.results[this.getModuleForAction(platformAction.action)] || 
+                           result.results['kubernetes'] || 
+                           Object.values(result.results).find((r: any) => 
+                             r.metadata?.module && !['safety', 'approval', 'audit'].includes(r.metadata.module)
+                           ) ||
+                           result.results;
+      
+      // Use module's formatted response if available, otherwise generate simple response
+      const message = moduleResponse.message || this.generateShortStatusMessage(platformAction, true);
+      const detailedResponse = moduleResponse.detailedResponse;
+      const data = moduleResponse.data || moduleResponse.result || moduleResponse;
+
+      // Check if an approval was created (for metadata)
+      const approvalResponse = result.results['approval'];
+      const approvalId = approvalResponse?.data?.id;
 
       return AgentResponseSchema.parse({
         success: true,
         message,
-        data: result.results,
+        detailedResponse,
+        data,
         actions: [platformAction],
         metadata: {
           originalInput,
           executionSteps: result.completedSteps,
           confidence: intent.confidence,
+          module: moduleResponse.metadata?.module,
+          action: moduleResponse.metadata?.action,
+          approvalId: approvalId,
         },
         timestamp: new Date().toISOString(),
       });
     } else {
-      // Failed execution
+      // Failed execution - generate error response
       const message = `❌ Failed to ${platformAction.action} ${platformAction.resourceName}: ${result.errors.join('; ')}`;
+      
+      // Generate error details
+      const detailedResponse = `## ❌ Operation Failed
+
+**Action:** ${platformAction.action}  
+**Resource:** ${platformAction.resourceName}  
+**Environment:** ${platformAction.environment}
+
+### 🔍 Error Details
+${result.errors.map(error => `- ${error}`).join('\n')}
+
+### 📋 Execution Steps Completed
+${result.completedSteps.length > 0 ? 
+  result.completedSteps.map((step, index) => `${index + 1}. ${step}`).join('\n') : 
+  'No steps completed before failure'
+}
+
+### 🛠️ Troubleshooting
+1. Check resource permissions
+2. Verify namespace exists and is accessible
+3. Review error messages above for specific issues
+4. Try again or contact support if problem persists`;
 
       return AgentResponseSchema.parse({
         success: false,
         message,
+        detailedResponse,
         data: { errors: result.errors, partialResults: result.results },
         actions: [],
         metadata: {
@@ -346,6 +514,35 @@ export class PrimaryAgent {
         timestamp: new Date().toISOString(),
       });
     }
+  }
+
+  /**
+   * Generate concise status message for quick feedback
+   */
+  private generateShortStatusMessage(platformAction: PlatformAction, success: boolean): string {
+    const actionPastTense = this.getActionPastTense(platformAction.action);
+    const emoji = success ? '✅' : '❌';
+    const verb = success ? 'Successfully' : 'Failed to';
+    
+    return `${emoji} ${verb} ${actionPastTense} ${platformAction.resourceName}`;
+  }
+
+  /**
+   * Convert action to past tense for better readability
+   */
+  private getActionPastTense(action: string): string {
+    const pastTenseMap: Record<string, string> = {
+      'deploy': 'deployed',
+      'scale': 'scaled', 
+      'status': 'retrieved status for',
+      'logs': 'retrieved logs for',
+      'delete': 'deleted',
+      'rollback': 'rolled back',
+      'list': 'listed resources for',
+      'describe': 'described'
+    };
+    
+    return pastTenseMap[action] || `${action}ed`;
   }
 
   /**
@@ -479,4 +676,7 @@ interface ExecutionResult {
   results: Record<string, any>;
   errors: string[];
   completedSteps: string[];
+  approvalRequired?: boolean;
+  approvalId?: string;
+  halted?: boolean;
 }

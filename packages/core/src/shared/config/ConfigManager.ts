@@ -76,6 +76,19 @@ const SlackConfigSchema = z.object({
   approvalChannel: z.string().default('#platform-approvals'),
 }).optional();
 
+const AWSConfigSchema = z.object({
+  region: z.string().default('us-east-1'),
+  endpoint: z.string().optional(), // For LocalStack
+  credentials: z.object({
+    accessKeyId: z.string(),
+    secretAccessKey: z.string(),
+  }).optional(),
+  dynamodb: z.object({
+    approvalsTableName: z.string().default('ai-idp-approvals'),
+    chatSessionsTableName: z.string().default('ai-idp-chat-sessions'),
+  }),
+});
+
 const SecurityConfigSchema = z.object({
   jwtSecret: z.string().min(32, 'JWT secret must be at least 32 characters'),
   sessionSecret: z.string().min(32, 'Session secret must be at least 32 characters'),
@@ -110,6 +123,7 @@ const ConfigSchema = z.object({
   ai: AIConfigSchema,
   kubernetes: KubernetesConfigSchema,
   slack: SlackConfigSchema,
+  aws: AWSConfigSchema,
   security: SecurityConfigSchema,
   monitoring: MonitoringConfigSchema,
 });
@@ -183,6 +197,18 @@ export class ConfigManager {
         signingSecret: process.env.SLACK_SIGNING_SECRET,
         approvalChannel: process.env.SLACK_APPROVAL_CHANNEL || '#platform-approvals',
       } : undefined,
+      aws: {
+        region: process.env.AWS_REGION || 'us-east-1',
+        endpoint: process.env.AWS_ENDPOINT, // LocalStack endpoint
+        credentials: (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ? {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        } : undefined,
+        dynamodb: {
+          approvalsTableName: process.env.APPROVALS_TABLE_NAME || 'ai-idp-approvals',
+          chatSessionsTableName: process.env.CHAT_SESSIONS_TABLE_NAME || 'ai-idp-chat-sessions',
+        },
+      },
       security: {
         jwtSecret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-must-be-32-chars-minimum',
         sessionSecret: process.env.SESSION_SECRET || 'your-session-secret-must-be-32-chars-minimum',
@@ -258,6 +284,13 @@ export class ConfigManager {
    */
   getSlackConfig() {
     return this.config.slack;
+  }
+
+  /**
+   * Get AWS configuration
+   */
+  getAWSConfig() {
+    return this.config.aws;
   }
 
   /**

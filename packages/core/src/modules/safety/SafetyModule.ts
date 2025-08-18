@@ -174,6 +174,10 @@ export class SafetyModule extends BaseModule {
     const userRisk = this.assessUserRisk(context);
     riskFactors.push(userRisk);
 
+    // 6. Permission compliance risk
+    const permissionRisk = this.assessPermissionRisk(action, context);
+    riskFactors.push(permissionRisk);
+
     // Calculate overall risk level
     const overallRisk = this.calculateOverallRisk(riskFactors);
     const requiresApproval = this.requiresApproval(overallRisk, action, context);
@@ -399,12 +403,15 @@ export class SafetyModule extends BaseModule {
 
     const missingPermissions = requiredPermissions.filter(p => !userPermissions.includes(p));
 
+    // Don't fail validation for missing permissions - instead, let approval workflow handle it
     return {
-      valid: missingPermissions.length === 0,
+      valid: true, // Always pass validation
       message: missingPermissions.length === 0
         ? 'Permission check passed'
-        : `Missing permissions: ${missingPermissions.join(', ')}`,
-      warnings: []
+        : `Missing permissions detected: ${missingPermissions.join(', ')} - will require approval`,
+      warnings: missingPermissions.length > 0 
+        ? [`Missing permissions: ${missingPermissions.join(', ')} - approval workflow will be triggered`]
+        : []
     };
   }
 
@@ -500,6 +507,33 @@ export class SafetyModule extends BaseModule {
     };
   }
 
+  private assessPermissionRisk(action: PlatformAction, context: RequestContext): RiskFactor {
+    const requiredPermissions = this.getRequiredPermissions(action);
+    const userPermissions = context.permissions || [];
+    const missingPermissions = requiredPermissions.filter(p => !userPermissions.includes(p));
+
+    if (missingPermissions.length === 0) {
+      return {
+        factor: 'permissions',
+        level: 'low',
+        description: 'All required permissions present',
+        weight: 0.1
+      };
+    }
+
+    // Escalate risk based on missing permissions
+    const hasCriticalPermissions = missingPermissions.some(p => 
+      ['production', 'delete', 'admin'].includes(p)
+    );
+
+    return {
+      factor: 'permissions',
+      level: hasCriticalPermissions ? 'high' : 'medium',
+      description: `Missing permissions: ${missingPermissions.join(', ')}`,
+      weight: hasCriticalPermissions ? 0.3 : 0.2
+    };
+  }
+
   private calculateOverallRisk(factors: RiskFactor[]): 'low' | 'medium' | 'high' | 'critical' {
     const score = this.calculateRiskScore(factors);
 
@@ -524,13 +558,22 @@ export class SafetyModule extends BaseModule {
       return true;
     }
 
-    // High/critical risk operations require approval
-    if (riskLevel === 'high' || riskLevel === 'critical') {
+    // Medium/high/critical risk operations require approval
+    if (riskLevel === 'medium' || riskLevel === 'high' || riskLevel === 'critical') {
       return true;
     }
 
     // Delete operations require approval
     if (action.action === 'delete') {
+      return true;
+    }
+
+    // Permission issues require approval workflow
+    const requiredPermissions = this.getRequiredPermissions(action);
+    const userPermissions = context.permissions || [];
+    const missingPermissions = requiredPermissions.filter(p => !userPermissions.includes(p));
+    
+    if (missingPermissions.length > 0) {
       return true;
     }
 
@@ -554,6 +597,9 @@ export class SafetyModule extends BaseModule {
             break;
           case 'time':
             mitigations.push('Ensure on-call engineer is available');
+            break;
+          case 'permissions':
+            mitigations.push('Approval workflow will verify permissions with authorized personnel');
             break;
         }
       }

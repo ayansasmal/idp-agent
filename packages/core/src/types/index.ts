@@ -34,6 +34,7 @@ export const ModuleResponseSchema = z.object({
   errors: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
   message: z.string(),
+  detailedResponse: z.string().optional(),
   timestamp: z.string(),
   data: z.any().optional(),
 });
@@ -76,6 +77,7 @@ export const IntentAnalysisSchema = z.object({
 export const AgentResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
+  detailedResponse: z.string().optional(),
   data: z.any().optional(),
   actions: z.array(PlatformActionSchema).default([]),
   metadata: z.record(z.any()).default({}),

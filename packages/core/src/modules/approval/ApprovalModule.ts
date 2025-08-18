@@ -1,6 +1,7 @@
 import { BaseModule } from '../base/SimpleBaseModule';
 import { ModuleRequest, ModuleResponse, PlatformAction, RequestContext } from '../../types';
 import { CorrelationLogger } from '../../shared/logger/Logger';
+import { ApprovalStorage, ApprovalRequest, ApprovalRequirements, ApprovalRecord } from './ApprovalStorage';
 import { z } from 'zod';
 
 /**
@@ -9,17 +10,20 @@ import { z } from 'zod';
  */
 export class ApprovalModule extends BaseModule {
   private logger: CorrelationLogger;
-  private pendingApprovals: Map<string, ApprovalRequest>;
+  private storage: ApprovalStorage;
   private approvalHandlers: Map<string, ApprovalHandler>;
 
   constructor() {
     super();
     this.logger = new CorrelationLogger('approval-module', '');
-    this.pendingApprovals = new Map();
+    this.storage = new ApprovalStorage();
     this.approvalHandlers = new Map();
   }
 
   async initialize(): Promise<void> {
+    // Initialize persistent storage
+    await this.storage.initialize();
+    
     // Initialize approval handlers
     this.approvalHandlers.set('slack', new SlackApprovalHandler());
     this.approvalHandlers.set('email', new EmailApprovalHandler());
@@ -31,7 +35,8 @@ export class ApprovalModule extends BaseModule {
     }
 
     this.logger.info('Approval module initialized', {
-      handlers: Array.from(this.approvalHandlers.keys())
+      handlers: Array.from(this.approvalHandlers.keys()),
+      storageInitialized: true
     });
   }
 
@@ -117,7 +122,7 @@ export class ApprovalModule extends BaseModule {
   }
 
   async requestApproval(params: any, context: RequestContext): Promise<ModuleResponse> {
-    const { platformAction, riskLevel, justification, urgency = 'normal' } = params;
+    const { platformAction, riskLevel, justification, urgency = 'normal', confidence = 0.85 } = params;
 
     // Generate unique approval ID
     const approvalId = `approval-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -133,6 +138,7 @@ export class ApprovalModule extends BaseModule {
       riskLevel,
       justification,
       urgency,
+      confidence,
       requirements: approvalRequirements,
       status: 'pending',
       createdAt: new Date().toISOString(),
@@ -146,8 +152,8 @@ export class ApprovalModule extends BaseModule {
       }
     };
 
-    // Store pending approval
-    this.pendingApprovals.set(approvalId, approvalRequest);
+    // Store approval in persistent storage
+    await this.storage.storeApproval(approvalRequest);
 
     // Send approval notifications
     const notifications = await this.sendApprovalNotifications(approvalRequest);
@@ -179,7 +185,7 @@ export class ApprovalModule extends BaseModule {
   }
 
   async checkApproval(approvalId: string): Promise<ModuleResponse> {
-    const approval = this.pendingApprovals.get(approvalId);
+    const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
       return {
@@ -197,6 +203,8 @@ export class ApprovalModule extends BaseModule {
     // Check if approval has expired
     if (new Date() > new Date(approval.expiresAt)) {
       approval.status = 'expired';
+      approval.expiredAt = new Date().toISOString();
+      await this.storage.updateApproval(approval);
       this.logger.info('Approval request expired', { approvalId });
     }
 
@@ -205,6 +213,7 @@ export class ApprovalModule extends BaseModule {
     if (isApproved && approval.status === 'pending') {
       approval.status = 'approved';
       approval.approvedAt = new Date().toISOString();
+      await this.storage.updateApproval(approval);
       this.logger.info('Approval requirements met', { approvalId });
     }
 
@@ -229,7 +238,7 @@ export class ApprovalModule extends BaseModule {
   }
 
   async approveRequest(approvalId: string, approverId: string, comments?: string): Promise<ModuleResponse> {
-    const approval = this.pendingApprovals.get(approvalId);
+    const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
       throw new Error(`Approval request ${approvalId} not found`);
@@ -269,6 +278,9 @@ export class ApprovalModule extends BaseModule {
       await this.sendApprovalCompletionNotification(approval);
     }
 
+    // Update approval in storage
+    await this.storage.updateApproval(approval);
+
     this.logger.info('Approval received', {
       approvalId,
       approverId,
@@ -298,7 +310,7 @@ export class ApprovalModule extends BaseModule {
   }
 
   async rejectRequest(approvalId: string, approverId: string, reason?: string): Promise<ModuleResponse> {
-    const approval = this.pendingApprovals.get(approvalId);
+    const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
       throw new Error(`Approval request ${approvalId} not found`);
@@ -319,6 +331,9 @@ export class ApprovalModule extends BaseModule {
     approval.rejections.push(rejectionRecord);
     approval.status = 'rejected';
     approval.rejectedAt = new Date().toISOString();
+
+    // Update approval in storage
+    await this.storage.updateApproval(approval);
 
     // Send rejection notifications
     await this.sendRejectionNotification(approval, approverId, reason);
@@ -348,20 +363,21 @@ export class ApprovalModule extends BaseModule {
   }
 
   async listPendingApprovals(context: RequestContext): Promise<ModuleResponse> {
-    const pendingApprovals = Array.from(this.pendingApprovals.values())
-      .filter(approval => approval.status === 'pending')
-      .map(approval => ({
-        id: approval.id,
-        action: approval.platformAction.action,
-        resource: approval.platformAction.resourceName,
-        environment: approval.platformAction.environment,
-        riskLevel: approval.riskLevel,
-        createdAt: approval.createdAt,
-        expiresAt: approval.expiresAt,
-        requiredApprovals: approval.requirements.requiredCount,
-        currentApprovals: approval.approvals.length,
-        approvers: approval.requirements.approvers
-      }));
+    const allPendingApprovals = await this.storage.getPendingApprovals();
+    
+    const pendingApprovals = allPendingApprovals.map(approval => ({
+      id: approval.id,
+      action: approval.platformAction.action,
+      resource: approval.platformAction.resourceName,
+      environment: approval.platformAction.environment,
+      riskLevel: approval.riskLevel,
+      createdAt: approval.createdAt,
+      expiresAt: approval.expiresAt,
+      requiredApprovals: approval.requirements.requiredCount,
+      currentApprovals: approval.approvals.length,
+      approvers: approval.requirements.approvers,
+      justification: approval.justification
+    }));
 
     return {
       success: true,
@@ -379,7 +395,7 @@ export class ApprovalModule extends BaseModule {
   }
 
   async escalateApproval(approvalId: string, reason?: string): Promise<ModuleResponse> {
-    const approval = this.pendingApprovals.get(approvalId);
+    const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
       throw new Error(`Approval request ${approvalId} not found`);
@@ -388,6 +404,9 @@ export class ApprovalModule extends BaseModule {
     // Add escalation approvers
     const escalationApprovers = this.getEscalationApprovers(approval);
     approval.requirements.approvers.push(...escalationApprovers);
+
+    // Update approval in storage
+    await this.storage.updateApproval(approval);
 
     // Send escalation notifications
     await this.sendEscalationNotifications(approval, escalationApprovers, reason);
@@ -416,28 +435,25 @@ export class ApprovalModule extends BaseModule {
   }
 
   async checkTimeouts(): Promise<ModuleResponse> {
-    const now = new Date();
-    let expiredCount = 0;
-
-    for (const [id, approval] of this.pendingApprovals.entries()) {
-      if (approval.status === 'pending' && now > new Date(approval.expiresAt)) {
-        approval.status = 'expired';
-        expiredCount++;
-
-        // Send timeout notifications
+    // Use storage's built-in expired approval processing
+    const expiredIds = await this.storage.processExpiredApprovals();
+    
+    // Send timeout notifications for each expired approval
+    for (const approvalId of expiredIds) {
+      const approval = await this.storage.getApproval(approvalId);
+      if (approval) {
         await this.sendTimeoutNotification(approval);
-
-        this.logger.info('Approval request expired', { approvalId: id });
+        this.logger.info('Approval request expired', { approvalId });
       }
     }
 
     return {
       success: true,
-      message: `Processed ${expiredCount} expired approvals`,
+      message: `Processed ${expiredIds.length} expired approvals`,
       timestamp: new Date().toISOString(),
       data: {
-        expiredCount,
-        totalChecked: this.pendingApprovals.size
+        expiredCount: expiredIds.length,
+        expiredIds
       },
       metadata: {
         module: 'approval',
@@ -586,6 +602,10 @@ export class ApprovalModule extends BaseModule {
   }
 
   async getHealth(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; message: string }> {
+    // Check storage health
+    const storageHealth = await this.storage.getHealth();
+    
+    // Check handler health
     const handlerHealth = await Promise.all(
       Array.from(this.approvalHandlers.entries()).map(async ([type, handler]) => ({
         type,
@@ -595,21 +615,30 @@ export class ApprovalModule extends BaseModule {
 
     const unhealthyHandlers = handlerHealth.filter(h => h.health.status === 'unhealthy');
 
-    if (unhealthyHandlers.length === handlerHealth.length) {
+    // Overall health determination
+    if (storageHealth.status === 'unhealthy') {
+      return {
+        status: 'unhealthy',
+        message: `Approval storage unhealthy: ${storageHealth.message}`
+      };
+    } else if (unhealthyHandlers.length === handlerHealth.length) {
       return {
         status: 'unhealthy',
         message: 'All approval handlers are unhealthy'
       };
-    } else if (unhealthyHandlers.length > 0) {
+    } else if (storageHealth.status === 'degraded' || unhealthyHandlers.length > 0) {
       return {
         status: 'degraded',
-        message: `${unhealthyHandlers.length} of ${handlerHealth.length} approval handlers unhealthy`
+        message: `Storage: ${storageHealth.status}, ${unhealthyHandlers.length}/${handlerHealth.length} handlers unhealthy`
       };
     }
 
+    // Get pending count from storage
+    const pendingApprovals = await this.storage.getPendingApprovals();
+
     return {
       status: 'healthy',
-      message: `Approval module operational with ${this.pendingApprovals.size} pending approvals`
+      message: `Approval module operational with ${pendingApprovals.length} pending approvals`
     };
   }
 
@@ -620,6 +649,9 @@ export class ApprovalModule extends BaseModule {
     for (const handler of this.approvalHandlers.values()) {
       await handler.shutdown();
     }
+
+    // Shutdown storage
+    await this.storage.shutdown();
   }
 }
 
@@ -725,42 +757,6 @@ class ConsoleApprovalHandler extends ApprovalHandler {
   async shutdown(): Promise<void> {
     // No cleanup needed
   }
-}
-
-// Type definitions
-interface ApprovalRequest {
-  id: string;
-  platformAction: PlatformAction;
-  context: RequestContext;
-  riskLevel: string;
-  justification: string;
-  urgency: string;
-  requirements: ApprovalRequirements;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
-  createdAt: string;
-  expiresAt: string;
-  approvedAt?: string;
-  rejectedAt?: string;
-  approvals: ApprovalRecord[];
-  rejections: ApprovalRecord[];
-  metadata: {
-    userAgent: string;
-    ipAddress: string;
-    sessionId: string;
-  };
-}
-
-interface ApprovalRequirements {
-  requiredCount: number;
-  approvers: string[];
-  timeoutMinutes: number;
-}
-
-interface ApprovalRecord {
-  approverId: string;
-  timestamp: string;
-  comments?: string;
-  type: 'approval' | 'rejection';
 }
 
 interface NotificationResult {

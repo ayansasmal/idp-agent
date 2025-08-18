@@ -177,7 +177,7 @@ Rules:
       return {
         platformAction: result,
         requiresValidation: true,
-        requiresApproval: result.riskLevel === 'high' || result.riskLevel === 'critical',
+        requiresApproval: result.riskLevel === 'medium' || result.riskLevel === 'high' || result.riskLevel === 'critical',
         additionalContext: { originalInput: userInput, context },
       };
     } catch (error) {

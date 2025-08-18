@@ -38,7 +38,9 @@
     "pino": "^8.19.0",
     "pino-http": "^10.0.0",
     "prom-client": "^15.1.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "@aws-sdk/client-dynamodb": "^3.489.0",
+    "@aws-sdk/lib-dynamodb": "^3.489.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

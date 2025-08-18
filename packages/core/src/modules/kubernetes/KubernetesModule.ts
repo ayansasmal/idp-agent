@@ -1,6 +1,7 @@
 import { BaseModule } from '../base/SimpleBaseModule';
 import { ModuleRequest, ModuleResponse, PlatformAction } from '../../types';
 import { CorrelationLogger } from '../../shared/logger/Logger';
+import { formatKubernetesResponse } from './formatters';
 import * as k8s from '@kubernetes/client-node';
 import * as yaml from 'js-yaml';
 import * as kubeConfig from "./cloud-kubeconfig.json"
@@ -98,10 +99,10 @@ export class KubernetesModule extends BaseModule {
     try {
       const namespacesResponse = await this.k8sApi.listNamespace();
       this.availableNamespaces = namespacesResponse.body.items.map(ns => ns.metadata?.name || '').filter(name => name);
-      
-      this.logger.info('Loaded available namespaces', { 
+
+      this.logger.info('Loaded available namespaces', {
         namespaces: this.availableNamespaces,
-        count: this.availableNamespaces.length 
+        count: this.availableNamespaces.length
       });
     } catch (error) {
       this.logger.warn('Failed to load namespaces, will use default', { error });
@@ -112,10 +113,10 @@ export class KubernetesModule extends BaseModule {
   /**
    * Validate and resolve namespace for deployment
    */
-  private async validateNamespace(requestedNamespace: string): Promise<{ 
-    namespace: string; 
-    requiresUserInput: boolean; 
-    availableOptions?: string[] 
+  private async validateNamespace(requestedNamespace: string): Promise<{
+    namespace: string;
+    requiresUserInput: boolean;
+    availableOptions?: string[]
   }> {
     // If no Kubernetes API, use simulation mode
     if (!this.k8sApi) {
@@ -130,10 +131,10 @@ export class KubernetesModule extends BaseModule {
         return { namespace: this.availableNamespaces[0], requiresUserInput: false };
       } else {
         // Multiple namespaces available, ask user to choose
-        return { 
-          namespace: 'default', 
-          requiresUserInput: true, 
-          availableOptions: this.availableNamespaces 
+        return {
+          namespace: 'default',
+          requiresUserInput: true,
+          availableOptions: this.availableNamespaces
         };
       }
     }
@@ -153,44 +154,13 @@ export class KubernetesModule extends BaseModule {
     }
 
     // Neither requested nor default exists, ask user to choose
-    return { 
-      namespace: this.availableNamespaces[0] || 'default', 
-      requiresUserInput: true, 
-      availableOptions: this.availableNamespaces 
+    return {
+      namespace: this.availableNamespaces[0] || 'default',
+      requiresUserInput: true,
+      availableOptions: this.availableNamespaces
     };
   }
 
-  /**
-   * Helper method to validate namespace and return early if user input is required
-   */
-  private async validateNamespaceForAction(environment: string, action: string): Promise<{ namespace: string; requiresUserInput: boolean; response?: ModuleResponse }> {
-    const namespaceValidation = await this.validateNamespace(environment);
-    
-    if (namespaceValidation.requiresUserInput) {
-      return {
-        namespace: 'default',
-        requiresUserInput: true,
-        response: {
-          success: false,
-          message: `Multiple namespaces available. Please specify which namespace to ${action} in.`,
-          timestamp: new Date().toISOString(),
-          data: {
-            availableNamespaces: namespaceValidation.availableOptions,
-            requestedNamespace: environment,
-            suggestedAction: `Please specify one of: ${namespaceValidation.availableOptions?.join(', ')}`
-          },
-          metadata: {
-            module: 'kubernetes',
-            action,
-            requiresUserInput: true,
-            inputType: 'namespace-selection'
-          }
-        }
-      };
-    }
-
-    return { namespace: namespaceValidation.namespace, requiresUserInput: false };
-  }
 
   async process(request: ModuleRequest): Promise<ModuleResponse> {
     const startTime = Date.now();
@@ -248,40 +218,16 @@ export class KubernetesModule extends BaseModule {
 
   private async handleKubernetesAction(request: ModuleRequest): Promise<ModuleResponse> {
     const { action, parameters } = request;
+    const { environment } = parameters;
 
-    switch (action) {
-      case 'deploy':
-        return this.handleDeploy(parameters);
-      case 'scale':
-        return this.handleScale(parameters);
-      case 'status':
-        return this.handleStatus(parameters);
-      case 'logs':
-        return this.handleLogs(parameters);
-      case 'rollback':
-        return this.handleRollback(parameters);
-      case 'delete':
-        return this.handleDelete(parameters);
-      case 'list':
-        return this.handleList(parameters);
-      case 'describe':
-        return this.handleDescribe(parameters);
-      default:
-        throw new Error(`Unsupported Kubernetes action: ${action}`);
-    }
-  }
-
-  private async handleDeploy(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment, image, replicas = 1, port = 8080 } = params;
-
-    // Validate and resolve namespace
+    // Validate namespace once at the request level
     const namespaceValidation = await this.validateNamespace(environment);
-    
-    // If user input is required, return a request for clarification
+
+    // If user input is required, return early with namespace selection request
     if (namespaceValidation.requiresUserInput) {
       return {
         success: false,
-        message: `Multiple namespaces available. Please specify which namespace to deploy to.`,
+        message: `Multiple namespaces available. Please specify which namespace to ${action} in.`,
         timestamp: new Date().toISOString(),
         data: {
           availableNamespaces: namespaceValidation.availableOptions,
@@ -290,7 +236,7 @@ export class KubernetesModule extends BaseModule {
         },
         metadata: {
           module: 'kubernetes',
-          action: 'deploy',
+          action,
           requiresUserInput: true,
           inputType: 'namespace-selection'
         }
@@ -298,10 +244,42 @@ export class KubernetesModule extends BaseModule {
     }
 
     const resolvedNamespace = namespaceValidation.namespace;
-    this.logger.info('Using namespace for deployment', { 
-      requested: environment, 
-      resolved: resolvedNamespace 
+    this.logger.info(`Using namespace for ${action}`, {
+      requested: environment,
+      resolved: resolvedNamespace
     });
+
+    // Create enhanced parameters with resolved namespace
+    const enhancedParams = {
+      ...parameters,
+      resolvedNamespace,
+      originalEnvironment: environment
+    };
+
+    switch (action) {
+      case 'deploy':
+        return this.handleDeploy(enhancedParams);
+      case 'scale':
+        return this.handleScale(enhancedParams);
+      case 'status':
+        return this.handleStatus(enhancedParams);
+      case 'logs':
+        return this.handleLogs(enhancedParams);
+      case 'rollback':
+        return this.handleRollback(enhancedParams);
+      case 'delete':
+        return this.handleDelete(enhancedParams);
+      case 'list':
+        return this.handleList(enhancedParams);
+      case 'describe':
+        return this.handleDescribe(enhancedParams);
+      default:
+        throw new Error(`Unsupported Kubernetes action: ${action}`);
+    }
+  }
+
+  private async handleDeploy(params: any): Promise<ModuleResponse> {
+    const { resourceName, resolvedNamespace, image, replicas = 1, port = 8080 } = params;
 
     // Generate Kubernetes deployment manifest
     const deployment = this.generateDeploymentManifest({
@@ -315,20 +293,17 @@ export class KubernetesModule extends BaseModule {
     // In development mode without K8s cluster, simulate deployment
     if (!this.k8sAppsApi) {
       this.logger.info('Simulating deployment (no K8s cluster)', { resourceName, namespace: resolvedNamespace });
-      return {
-        success: true,
-        message: `Successfully simulated deployment of ${resourceName} to namespace ${resolvedNamespace}`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Successfully simulated deployment of ${resourceName} to namespace ${resolvedNamespace}`,
+        {
           manifest: deployment,
           status: 'simulated'
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'deploy',
-          simulation: true
-        }
-      };
+        'deploy',
+        resourceName,
+        resolvedNamespace
+      );
     }
 
     // Real Kubernetes deployment
@@ -338,23 +313,20 @@ export class KubernetesModule extends BaseModule {
         deployment
       );
 
-      return {
-        success: true,
-        message: `Successfully deployed ${resourceName} to namespace ${resolvedNamespace}`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Successfully deployed ${resourceName} to namespace ${resolvedNamespace}`,
+        {
           deployment: result.body,
           manifest: deployment
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'deploy'
-        }
-      };
+        'deploy',
+        resourceName,
+        resolvedNamespace
+      );
     } catch (error) {
       this.logger.error('Real Kubernetes deployment failed', error, {
         resourceName,
-        requestedEnvironment: environment,
         resolvedNamespace,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         errorStack: error instanceof Error ? error.stack : undefined
@@ -368,50 +340,19 @@ export class KubernetesModule extends BaseModule {
   }
 
   private async handleScale(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment, replicas } = params;
-
-    // Validate and resolve namespace
-    const namespaceValidation = await this.validateNamespace(environment);
-    
-    // If user input is required, return a request for clarification
-    if (namespaceValidation.requiresUserInput) {
-      return {
-        success: false,
-        message: `Multiple namespaces available. Please specify which namespace to scale in.`,
-        timestamp: new Date().toISOString(),
-        data: {
-          availableNamespaces: namespaceValidation.availableOptions,
-          requestedNamespace: environment,
-          suggestedAction: `Please specify one of: ${namespaceValidation.availableOptions?.join(', ')}`
-        },
-        metadata: {
-          module: 'kubernetes',
-          action: 'scale',
-          requiresUserInput: true,
-          inputType: 'namespace-selection'
-        }
-      };
-    }
-
-    const resolvedNamespace = namespaceValidation.namespace;
-    this.logger.info('Using namespace for scaling', { 
-      requested: environment, 
-      resolved: resolvedNamespace 
-    });
+    const { resourceName, resolvedNamespace, replicas } = params;
 
     if (!this.k8sAppsApi) {
       this.logger.info('Simulating scaling (no K8s cluster)', { resourceName, namespace: resolvedNamespace, replicas });
-      return {
-        success: true,
-        message: `Successfully simulated scaling ${resourceName} to ${replicas} replicas in namespace ${resolvedNamespace}`,
-        timestamp: new Date().toISOString(),
-        data: { status: 'simulated' },
-        metadata: {
-          module: 'kubernetes',
-          action: 'scale',
-          simulation: true
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Successfully simulated scaling ${resourceName} to ${replicas} replicas in namespace ${resolvedNamespace}`,
+        { status: 'simulated' },
+        'scale',
+        resourceName,
+        resolvedNamespace,
+        { replicas }
+      );
     }
 
     try {
@@ -434,59 +375,28 @@ export class KubernetesModule extends BaseModule {
         { headers: { 'Content-Type': 'application/merge-patch+json' } }
       );
 
-      return {
-        success: true,
-        message: `Successfully scaled ${resourceName} to ${replicas} replicas in namespace ${resolvedNamespace}`,
-        timestamp: new Date().toISOString(),
-        data: { deployment: result.body },
-        metadata: {
-          module: 'kubernetes',
-          action: 'scale'
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Successfully scaled ${resourceName} to ${replicas} replicas in namespace ${resolvedNamespace}`,
+        { deployment: result.body },
+        'scale',
+        resourceName,
+        resolvedNamespace,
+        { replicas }
+      );
     } catch (error) {
       throw new Error(`Scaling failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async handleStatus(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment } = params;
-
-    // Validate and resolve namespace
-    const namespaceValidation = await this.validateNamespace(environment);
-    
-    // If user input is required, return a request for clarification
-    if (namespaceValidation.requiresUserInput) {
-      return {
-        success: false,
-        message: `Multiple namespaces available. Please specify which namespace to check status in.`,
-        timestamp: new Date().toISOString(),
-        data: {
-          availableNamespaces: namespaceValidation.availableOptions,
-          requestedNamespace: environment,
-          suggestedAction: `Please specify one of: ${namespaceValidation.availableOptions?.join(', ')}`
-        },
-        metadata: {
-          module: 'kubernetes',
-          action: 'status',
-          requiresUserInput: true,
-          inputType: 'namespace-selection'
-        }
-      };
-    }
-
-    const resolvedNamespace = namespaceValidation.namespace;
-    this.logger.info('Using namespace for status check', { 
-      requested: environment, 
-      resolved: resolvedNamespace 
-    });
+    const { resourceName, resolvedNamespace } = params;
 
     if (!this.k8sAppsApi) {
-      return {
-        success: true,
-        message: `Status check for ${resourceName} in namespace ${resolvedNamespace} (simulated)`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Status check for ${resourceName} in namespace ${resolvedNamespace} (simulated)`,
+        {
           status: 'simulated',
           namespace: resolvedNamespace,
           replicas: { desired: 1, ready: 1, available: 1 },
@@ -494,12 +404,10 @@ export class KubernetesModule extends BaseModule {
             { type: 'Available', status: 'True', reason: 'MinimumReplicasAvailable' }
           ]
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'status',
-          simulation: true
-        }
-      };
+        'status',
+        resourceName,
+        resolvedNamespace
+      );
     }
 
     try {
@@ -517,11 +425,10 @@ export class KubernetesModule extends BaseModule {
         `app=${resourceName}`
       );
 
-      return {
-        success: true,
-        message: `Status for ${resourceName} in namespace ${resolvedNamespace}`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Status for ${resourceName} in namespace ${resolvedNamespace}`,
+        {
           deployment: deployment.body,
           pods: pods.body.items,
           replicas: {
@@ -530,66 +437,33 @@ export class KubernetesModule extends BaseModule {
             available: deployment.body.status?.availableReplicas || 0
           }
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'status'
-        }
-      };
+        'status',
+        resourceName,
+        resolvedNamespace
+      );
     } catch (error) {
       throw new Error(`Status check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async handleLogs(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment, lines = 100 } = params;
-
-    // Validate and resolve namespace
-    const namespaceValidation = await this.validateNamespace(environment);
-    
-    // If user input is required, return a request for clarification
-    if (namespaceValidation.requiresUserInput) {
-      return {
-        success: false,
-        message: `Multiple namespaces available. Please specify which namespace to get logs from.`,
-        timestamp: new Date().toISOString(),
-        data: {
-          availableNamespaces: namespaceValidation.availableOptions,
-          requestedNamespace: environment,
-          suggestedAction: `Please specify one of: ${namespaceValidation.availableOptions?.join(', ')}`
-        },
-        metadata: {
-          module: 'kubernetes',
-          action: 'logs',
-          requiresUserInput: true,
-          inputType: 'namespace-selection'
-        }
-      };
-    }
-
-    const resolvedNamespace = namespaceValidation.namespace;
-    this.logger.info('Using namespace for logs', { 
-      requested: environment, 
-      resolved: resolvedNamespace 
-    });
+    const { resourceName, resolvedNamespace, lines = 100 } = params;
 
     if (!this.k8sApi) {
-      return {
-        success: true,
-        message: `Logs for ${resourceName} in namespace ${resolvedNamespace} (simulated)`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Logs for ${resourceName} in namespace ${resolvedNamespace} (simulated)`,
+        {
           logs: [
             `${new Date().toISOString()} [INFO] Application started`,
             `${new Date().toISOString()} [INFO] Listening on port 8080`,
             `${new Date().toISOString()} [DEBUG] Health check passed`
           ].join('\n')
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'logs',
-          simulation: true
-        }
-      };
+        'logs',
+        resourceName,
+        resolvedNamespace
+      );
     }
 
     try {
@@ -626,66 +500,32 @@ export class KubernetesModule extends BaseModule {
         lines
       );
 
-      return {
-        success: true,
-        message: `Logs for ${resourceName} in namespace ${resolvedNamespace}`,
-        timestamp: new Date().toISOString(),
-        data: { logs: logs.body },
-        metadata: {
-          module: 'kubernetes',
-          action: 'logs',
-          podName
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Logs for ${resourceName} in namespace ${resolvedNamespace}`,
+        { logs: logs.body, podName },
+        'logs',
+        resourceName,
+        resolvedNamespace
+      );
     } catch (error) {
       throw new Error(`Failed to get logs: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async handleRollback(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment, revision } = params;
-
-    // Validate and resolve namespace
-    const namespaceValidation = await this.validateNamespace(environment);
-    
-    // If user input is required, return a request for clarification
-    if (namespaceValidation.requiresUserInput) {
-      return {
-        success: false,
-        message: `Multiple namespaces available. Please specify which namespace to rollback in.`,
-        timestamp: new Date().toISOString(),
-        data: {
-          availableNamespaces: namespaceValidation.availableOptions,
-          requestedNamespace: environment,
-          suggestedAction: `Please specify one of: ${namespaceValidation.availableOptions?.join(', ')}`
-        },
-        metadata: {
-          module: 'kubernetes',
-          action: 'rollback',
-          requiresUserInput: true,
-          inputType: 'namespace-selection'
-        }
-      };
-    }
-
-    const resolvedNamespace = namespaceValidation.namespace;
-    this.logger.info('Using namespace for rollback', { 
-      requested: environment, 
-      resolved: resolvedNamespace 
-    });
+    const { resourceName, resolvedNamespace, revision } = params;
 
     if (!this.k8sAppsApi) {
-      return {
-        success: true,
-        message: `Rollback of ${resourceName} in namespace ${resolvedNamespace} simulated`,
-        timestamp: new Date().toISOString(),
-        data: { status: 'simulated' },
-        metadata: {
-          module: 'kubernetes',
-          action: 'rollback',
-          simulation: true
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Rollback of ${resourceName} in namespace ${resolvedNamespace} simulated`,
+        { status: 'simulated' },
+        'rollback',
+        resourceName,
+        resolvedNamespace,
+        { revision }
+      );
     }
 
     // Kubernetes rollback using annotations
@@ -714,84 +554,75 @@ export class KubernetesModule extends BaseModule {
         { headers: { 'Content-Type': 'application/merge-patch+json' } }
       );
 
-      return {
-        success: true,
-        message: `Successfully initiated rollback for ${resourceName}`,
-        timestamp: new Date().toISOString(),
-        data: { revision: revision || 'previous' },
-        metadata: {
-          module: 'kubernetes',
-          action: 'rollback'
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Successfully initiated rollback for ${resourceName}`,
+        { revision: revision || 'previous' },
+        'rollback',
+        resourceName,
+        resolvedNamespace,
+        { revision }
+      );
     } catch (error) {
       throw new Error(`Rollback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async handleDelete(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment } = params;
+    const { resourceName, resolvedNamespace } = params;
 
     if (!this.k8sAppsApi) {
-      return {
-        success: true,
-        message: `Deletion of ${resourceName} simulated`,
-        timestamp: new Date().toISOString(),
-        data: { status: 'simulated' },
-        metadata: {
-          module: 'kubernetes',
-          action: 'delete',
-          simulation: true
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Deletion of ${resourceName} from namespace ${resolvedNamespace} simulated`,
+        { status: 'simulated' },
+        'delete',
+        resourceName,
+        resolvedNamespace
+      );
     }
 
     try {
       await this.k8sAppsApi.deleteNamespacedDeployment(
         resourceName,
-        environment
+        resolvedNamespace
       );
 
-      return {
-        success: true,
-        message: `Successfully deleted ${resourceName} from ${environment}`,
-        timestamp: new Date().toISOString(),
-        data: { deleted: true },
-        metadata: {
-          module: 'kubernetes',
-          action: 'delete'
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Successfully deleted ${resourceName} from namespace ${resolvedNamespace}`,
+        { deleted: true },
+        'delete',
+        resourceName,
+        resolvedNamespace
+      );
     } catch (error) {
       throw new Error(`Deletion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async handleList(params: any): Promise<ModuleResponse> {
-    const { environment } = params;
+    const { resolvedNamespace } = params;
 
     if (!this.k8sAppsApi) {
-      return {
-        success: true,
-        message: `Listing deployments in ${environment} (simulated)`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Listing deployments in namespace ${resolvedNamespace} (simulated)`,
+        {
           deployments: [
             { name: 'user-auth', replicas: '1/1', status: 'Running' },
             { name: 'api-gateway', replicas: '2/2', status: 'Running' },
             { name: 'payment-service', replicas: '3/3', status: 'Running' }
           ]
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'list',
-          simulation: true
-        }
-      };
+        'list',
+        undefined,
+        resolvedNamespace
+      );
     }
 
     try {
-      const deployments = await this.k8sAppsApi.listNamespacedDeployment(environment);
+      const deployments = await this.k8sAppsApi.listNamespacedDeployment(resolvedNamespace);
 
       const deploymentList = deployments.body.items.map(deployment => ({
         name: deployment.metadata?.name || 'unknown',
@@ -801,33 +632,30 @@ export class KubernetesModule extends BaseModule {
         age: deployment.metadata?.creationTimestamp
       }));
 
-      return {
-        success: true,
-        message: `Deployments in ${environment}`,
-        timestamp: new Date().toISOString(),
-        data: { deployments: deploymentList },
-        metadata: {
-          module: 'kubernetes',
-          action: 'list'
-        }
-      };
+      return this.createFormattedResponse(
+        true,
+        `Deployments in namespace ${resolvedNamespace}`,
+        { deployments: deploymentList },
+        'list',
+        undefined,
+        resolvedNamespace
+      );
     } catch (error) {
       throw new Error(`Failed to list deployments: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async handleDescribe(params: any): Promise<ModuleResponse> {
-    const { resourceName, environment } = params;
+    const { resourceName, resolvedNamespace } = params;
 
     if (!this.k8sAppsApi) {
-      return {
-        success: true,
-        message: `Description of ${resourceName} (simulated)`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Description of ${resourceName} in namespace ${resolvedNamespace} (simulated)`,
+        {
           description: {
             name: resourceName,
-            namespace: environment,
+            namespace: resolvedNamespace,
             replicas: '1/1',
             strategy: 'RollingUpdate',
             conditions: [
@@ -835,25 +663,22 @@ export class KubernetesModule extends BaseModule {
             ]
           }
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'describe',
-          simulation: true
-        }
-      };
+        'describe',
+        resourceName,
+        resolvedNamespace
+      );
     }
 
     try {
       const deployment = await this.k8sAppsApi.readNamespacedDeployment(
         resourceName,
-        environment
+        resolvedNamespace
       );
 
-      return {
-        success: true,
-        message: `Description of ${resourceName}`,
-        timestamp: new Date().toISOString(),
-        data: {
+      return this.createFormattedResponse(
+        true,
+        `Description of ${resourceName} in namespace ${resolvedNamespace}`,
+        {
           description: deployment.body,
           summary: {
             name: deployment.body.metadata?.name,
@@ -863,11 +688,10 @@ export class KubernetesModule extends BaseModule {
             conditions: deployment.body.status?.conditions
           }
         },
-        metadata: {
-          module: 'kubernetes',
-          action: 'describe'
-        }
-      };
+        'describe',
+        resourceName,
+        resolvedNamespace
+      );
     } catch (error) {
       throw new Error(`Failed to describe ${resourceName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -955,6 +779,73 @@ export class KubernetesModule extends BaseModule {
         message: `Kubernetes API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
     }
+  }
+
+  /**
+   * Helper method to create formatted module responses
+   */
+  private createFormattedResponse(
+    success: boolean,
+    message: string,
+    data: any,
+    action: string,
+    resourceName?: string,
+    namespace?: string,
+    additionalParams?: any
+  ): ModuleResponse {
+    let detailedResponse: string | undefined;
+    
+    try {
+      if (success && data) {
+        const formatterResult = formatKubernetesResponse(
+          action,
+          data,
+          resourceName,
+          namespace,
+          additionalParams
+        );
+        detailedResponse = formatterResult.detailedResponse;
+        
+        // Enhance data with formatting metadata
+        data = {
+          ...data,
+          formatted: formatterResult.enhancedData
+        };
+      }
+    } catch (error) {
+      this.logger.warn('Failed to format detailed response', { error, action });
+      // Fallback to basic formatting
+      detailedResponse = `## ${success ? '✅' : '❌'} ${action.toUpperCase()} Operation
+
+**Resource:** ${resourceName || 'Unknown'}  
+**Namespace:** ${namespace || 'default'}  
+**Status:** ${success ? 'Completed' : 'Failed'}
+
+### Raw Data
+\`\`\`json
+${JSON.stringify(data, null, 2)}
+\`\`\``;
+    }
+
+    return {
+      requestId: '', // Will be set by communication layer
+      success,
+      message,
+      detailedResponse,
+      result: data,
+      data,
+      metadata: {
+        module: 'kubernetes',
+        action,
+        resourceName,
+        namespace,
+        hasDetailedResponse: !!detailedResponse
+      },
+      errors: [],
+      warnings: [],
+      nextActions: [],
+      timestamp: new Date().toISOString(),
+    };
   }
 
   async shutdown(): Promise<void> {
