@@ -191,6 +191,63 @@ Rules:
   }
 
   /**
+   * Extract a specific parameter from user input
+   */
+  async extractParameter(
+    userInput: string,
+    parameterName: string,
+    parameterDescription: string,
+    context: {
+      userId: string;
+      environment: string;
+      permissions: string[];
+    }
+  ): Promise<string | null> {
+    try {
+      const extractionSchema = z.object({
+        found: z.boolean().describe('Whether the parameter was found in the input'),
+        value: z.string().optional().describe('The extracted parameter value if found'),
+        confidence: z.number().min(0).max(1).describe('Confidence in the extraction')
+      });
+
+      const structuredModel = this.model.withStructuredOutput(extractionSchema);
+
+      const result = await structuredModel.invoke([
+        {
+          role: 'system',
+          content: `Extract the specific parameter "${parameterName}" from the user's input.
+          
+Parameter Description: ${parameterDescription}
+User Context: ${context.environment} environment, permissions: ${context.permissions.join(', ')}
+
+Rules:
+- Only extract if you're confident (>0.7) the value is correct
+- Return found=false if the parameter is not clearly specified
+- Be conservative - don't guess or infer unless explicitly stated
+- Extract exact values, not interpretations`,
+        },
+        {
+          role: 'user',
+          content: userInput,
+        },
+      ]);
+
+      if (result.found && result.confidence > 0.7 && result.value) {
+        return result.value;
+      }
+
+      return null;
+    } catch (error) {
+      throw new AIError(
+        `Failed to extract parameter: ${error instanceof Error ? error.message : String(error)}`,
+        'anthropic',
+        'PARAMETER_EXTRACTION_ERROR',
+        { userInput, parameterName, parameterDescription, context, error }
+      );
+    }
+  }
+
+  /**
    * Generate approval summary for human review
    */
   async generateApprovalSummary(action: any): Promise<string> {

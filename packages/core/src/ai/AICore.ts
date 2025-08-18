@@ -131,6 +131,44 @@ export class AICore {
   }
 
   /**
+   * Extract a specific parameter value from user input
+   */
+  async extractParameter(
+    userInput: string,
+    parameterName: string,
+    parameterDescription: string,
+    context: RequestContext
+  ): Promise<string | null> {
+    if (!this.currentProvider) {
+      throw new AIError('No provider available', 'none', 'NO_PROVIDER');
+    }
+
+    try {
+      const result = await this.executeWithRetry(async () => {
+        return await this.currentProvider!.extractParameter(
+          userInput,
+          parameterName,
+          parameterDescription,
+          {
+            userId: context.userId,
+            environment: context.environment,
+            permissions: context.permissions,
+          }
+        );
+      });
+
+      return result;
+    } catch (error) {
+      throw new AIError(
+        `Failed to extract parameter: ${error instanceof Error ? error.message : String(error)}`,
+        this.currentProvider.constructor.name,
+        'PARAMETER_EXTRACTION_ERROR',
+        { userInput, parameterName, parameterDescription, context, error }
+      );
+    }
+  }
+
+  /**
    * Generate approval summary for human review
    */
   async generateApprovalSummary(action: any): Promise<string> {

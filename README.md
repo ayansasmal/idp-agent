@@ -1,6 +1,6 @@
 # AI-Powered Integrated Developer Platform
 
-> **Current Phase: Phase 2.5 Complete - Production-Ready Web Application + Fixed Approval Workflow**
+> **Current Phase: Phase 2.6 Complete - Production-Ready Web Application + Parameter Validation System**
 
 ## Overview
 
@@ -9,6 +9,7 @@ This project builds a revolutionary AI-powered platform where developers use nat
 **What makes this different:**
 - 🤖 **AI-Agent-First**: The AI agent IS the platform interface
 - 💬 **Natural Language**: "Deploy my Node.js app with PostgreSQL" → Done
+- ✅ **Smart Validation**: AI-powered parameter validation with helpful prompting
 - 🛡️ **Safety-First**: Human approval + comprehensive validation for all changes
 - 📊 **Complete Audit**: Enterprise-grade compliance and audit trails
 - 🔄 **Self-Improving**: AI learns organizational patterns over time
@@ -61,6 +62,10 @@ open http://localhost:3002
 # - "Deploy my Node.js app to staging"  
 # - "Scale my payment service to 5 replicas"
 # - "Show me production service status"
+
+# The AI will guide you if information is missing:
+# - "deploy something" → "I need the container image. Example: nginx:latest"
+# - "scale api-gateway" → "I need to know how many replicas. Example: 3, 5, 10"
 ```
 
 **Note**: The web application now includes the **real PrimaryAgent** from the core package. Full integration is complete and operational.
@@ -71,6 +76,8 @@ open http://localhost:3002
 - [x] Modular single agent with 4 self-contained modules
 - [x] LLM-agnostic AI core (Anthropic Claude primary)
 - [x] Zero-refactoring module extraction design
+- [x] **AI-powered parameter validation** with intelligent user prompting
+- [x] **Multi-layer validation** (primary agent + module safety nets)
 - [x] Production-ready error handling and logging
 
 ### 🌐 Web Application ✅
@@ -81,6 +88,7 @@ open http://localhost:3002
 
 ### 💬 Chat Interface ✅
 - [x] Natural language interaction with AI agent
+- [x] **Smart Parameter Prompting**: AI guides users when information is missing
 - [x] **Dual-Response System**: Short status + rich detailed content
 - [x] **Expandable Markdown**: Pod status, replica counts, health conditions
 - [x] **Interactive JSON Viewer**: Copy, export, and explore raw data
@@ -125,6 +133,7 @@ Primary Agent
 - **Fast Development**: Single codebase, method calls, shared state
 - **Future-Proof**: Modules designed for zero-refactoring extraction
 - **Full Functionality**: Complete platform capabilities in 8 weeks
+- **Smart Validation**: AI-powered parameter validation prevents incomplete operations
 - **Safety-First**: Comprehensive validation and human oversight
 
 ## Development
@@ -233,19 +242,38 @@ Visit **http://localhost:3002** for the complete experience:
 6. **Status Tracking**: Real-time updates across all interfaces
 
 ### 📝 Example Operations
-```
-✅ Low Risk (Auto-execute):
-"Show me the status of my services"
+
+#### ✅ Complete Operations (Auto-execute)
+```bash
+"Show me the status of my nginx deployment"
 "Get logs for my api-gateway"
+"Deploy nginx:latest to staging"
+"Scale my payment-service to 3 replicas"
+```
 
-⚠️ Medium Risk (Optional approval):
-"Deploy my app to staging"
-"Scale my service to 3 replicas"
+#### 🤔 Incomplete Operations (AI Prompts for Info)
+```bash
+User: "deploy something"
+AI: "I need some additional information to proceed with your request.
 
-🚨 High Risk (Required approval):
-"Deploy to production"
-"Delete my database"
-"Scale down critical services"
+**Container Image**: The container image to deploy (optional if using existing deployment)
+*Example: nginx:latest, myapp:v1.2.3*
+
+You can provide the missing information like: 'Deploy nginx:latest'"
+
+User: "scale api-gateway"  
+AI: "I need to know how many replicas. Example: 3, 5, 10"
+
+User: "delete nginx"
+AI: "I need confirmation to delete this resource.
+*Example: yes, confirm, I understand*"
+```
+
+#### 🚨 High Risk Operations (Required Approval)
+```bash
+"Deploy to production" → Creates approval request
+"Delete my database" → Creates approval request  
+"Scale down critical services" → Creates approval request
 ```
 
 ### Development Workflow
@@ -333,19 +361,22 @@ docker run -p 3002:3002 ai-idp-web
 ### Adding New Module Capabilities
 1. Add method to appropriate module class
 2. Update module capabilities array
-3. Add validation logic in safety module
-4. Add tests for new functionality
-5. Update documentation
+3. Add mandatory parameters to PrimaryAgent validation
+4. Add validation logic in safety module
+5. Add tests for new functionality
+6. Update documentation
 
 ### Module Development Guidelines
 - **Self-contained**: Each module should have all its dependencies
 - **Extraction-ready**: Design for future agent extraction
+- **Parameter validation**: Define mandatory parameters and validation logic
 - **Safety-first**: Always validate before executing
 - **Audit everything**: Log all actions for compliance
 
 ## Security
 
 - **Defensive Security Only**: Platform designed for defensive security tasks
+- **Parameter Validation**: All operations validated for completeness before execution
 - **Human Oversight**: All medium/high-risk operations require approval
 - **Complete Audit Trail**: Every action logged for compliance
 - **Secure by Default**: Safety validation for all operations
@@ -361,16 +392,18 @@ docker run -p 3002:3002 ai-idp-web
 ## 🗺️ Phase Roadmap
 
 - ✅ **Phase 1 (Complete)**: Core modular agent architecture with AI integration
-- ✅ **Phase 2 (Complete)**: Production-ready web application with approval workflow
+- ✅ **Phase 2 (Complete)**: Production-ready web application with approval workflow  
+- ✅ **Phase 2.6 (Complete)**: AI-powered parameter validation system
 - 🎯 **Phase 3 (Next)**: Agent extraction to distributed multi-agent system  
 - 🚀 **Phase 4 (Future)**: Advanced ecosystem with specialized agents
 
 ## 📈 Current Status
 
-**🎉 Phase 2 Complete - Production Ready!**
+**🎉 Phase 2.6 Complete - Smart Validation Ready!**
 
 ✅ **Web Application**: Next.js + React + Tailwind CSS  
 ✅ **Chat Interface**: Natural language platform operations  
+✅ **Parameter Validation**: AI-powered validation with user prompting  
 ✅ **Approval Workflow**: Human oversight with risk assessment  
 ✅ **API Integration**: RESTful endpoints with full CRUD  
 ✅ **End-to-End Testing**: Complete workflow validation  
@@ -389,7 +422,7 @@ docker run -p 3002:3002 ai-idp-web
 
 ---
 
-**Status**: ✅ **Phase 2 Complete - Production Ready**  
-**Current Focus**: Web application with approval workflow  
+**Status**: ✅ **Phase 2.6 Complete - Smart Validation Ready**  
+**Current Focus**: AI-powered parameter validation with user guidance  
 **URL**: http://localhost:3002  
 **Documentation**: Complete technical implementation available

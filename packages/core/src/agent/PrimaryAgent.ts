@@ -7,6 +7,9 @@ import {
   IntentAnalysis,
   PlatformAction,
   AgentResponseSchema,
+  ParameterDefinition,
+  MissingParameter,
+  ParameterValidationResult,
 } from '@/types';
 import { config } from '@/shared/config/ConfigManager';
 import { Logger, CorrelationLogger } from '@/shared/logger/Logger';
@@ -115,6 +118,18 @@ export class PrimaryAgent {
         confidence: intent.confidence,
         requiresApproval: intent.requiresApproval,
       });
+
+      // 1.5. Validate mandatory parameters and prompt for missing ones
+      correlationLogger.info('Validating mandatory parameters');
+      const validationResult = await this.validateMandatoryParameters(intent, userInput, context);
+      
+      if (!validationResult.isValid) {
+        correlationLogger.info('Missing mandatory parameters, prompting user', {
+          missingParameters: validationResult.missingParameters
+        });
+        
+        return this.createParameterPromptResponse(validationResult, userInput);
+      }
 
       // 2. Create execution plan
       const executionPlan = await this.createExecutionPlan(intent, context);
@@ -591,6 +606,285 @@ ${result.completedSteps.length > 0 ?
     // In future iterations, this can be enhanced with real streaming
     const response = await this.processRequest(input, context);
     yield response.message;
+  }
+
+  /**
+   * Validate that all mandatory parameters are present for the intended action
+   */
+  private async validateMandatoryParameters(
+    intent: IntentAnalysis, 
+    userInput: string, 
+    context: RequestContext
+  ): Promise<ParameterValidationResult> {
+    const { platformAction } = intent;
+    const missingParameters: MissingParameter[] = [];
+    
+    // Define mandatory parameters for each action type
+    const mandatoryParams = this.getMandatoryParameters(platformAction.action);
+    
+    for (const param of mandatoryParams) {
+      const value = this.getParameterValue(platformAction, param.name);
+      
+      if (!this.isValidParameterValue(value, param)) {
+        // Try to extract the parameter from user input using AI
+        const extractedValue = await this.extractParameterFromInput(param, userInput, context);
+        
+        if (!extractedValue) {
+          missingParameters.push({
+            name: param.name,
+            displayName: param.displayName,
+            description: param.description,
+            example: param.example,
+            required: true
+          });
+        } else {
+          // Update the platform action with the extracted value
+          this.setParameterValue(platformAction, param.name, extractedValue);
+        }
+      }
+    }
+    
+    return {
+      isValid: missingParameters.length === 0,
+      missingParameters,
+      validatedAction: platformAction
+    };
+  }
+
+  /**
+   * Get mandatory parameters for each action type
+   */
+  private getMandatoryParameters(action: string): ParameterDefinition[] {
+    const commonParams: ParameterDefinition[] = [
+      {
+        name: 'resourceName',
+        displayName: 'Resource Name',
+        description: 'The name of the resource to operate on',
+        example: 'nginx, user-service, payment-api',
+        type: 'string',
+        validation: (value: string) => value && value.trim().length > 0
+      }
+    ];
+
+    const actionSpecificParams: Record<string, ParameterDefinition[]> = {
+      'deploy': [
+        ...commonParams,
+        {
+          name: 'image',
+          displayName: 'Container Image',
+          description: 'The container image to deploy (optional if using existing deployment)',
+          example: 'nginx:latest, myapp:v1.2.3',
+          type: 'string',
+          required: false
+        }
+      ],
+      'scale': [
+        ...commonParams,
+        {
+          name: 'replicas',
+          displayName: 'Number of Replicas',
+          description: 'How many instances of the service to run',
+          example: '3, 5, 10',
+          type: 'number',
+          validation: (value: any) => {
+            const num = parseInt(value);
+            return !isNaN(num) && num > 0 && num <= 100;
+          }
+        }
+      ],
+      'delete': [
+        ...commonParams,
+        {
+          name: 'confirmDelete',
+          displayName: 'Delete Confirmation',
+          description: 'Confirmation that you want to delete this resource',
+          example: 'yes, confirm, I understand',
+          type: 'string',
+          validation: (value: string) => {
+            const confirmed = ['yes', 'confirm', 'true', 'ok'].includes(value?.toLowerCase());
+            return confirmed;
+          }
+        }
+      ]
+    };
+
+    return actionSpecificParams[action] || commonParams;
+  }
+
+  /**
+   * Get parameter value from platform action
+   */
+  private getParameterValue(platformAction: PlatformAction, paramName: string): any {
+    if (paramName === 'resourceName') return platformAction.resourceName;
+    if (paramName === 'replicas') return platformAction.parameters?.replicas;
+    if (paramName === 'image') return platformAction.parameters?.image;
+    if (paramName === 'confirmDelete') return platformAction.parameters?.confirmDelete;
+    
+    return platformAction.parameters?.[paramName];
+  }
+
+  /**
+   * Set parameter value in platform action
+   */
+  private setParameterValue(platformAction: PlatformAction, paramName: string, value: any): void {
+    if (paramName === 'resourceName') {
+      platformAction.resourceName = value;
+    } else {
+      if (!platformAction.parameters) platformAction.parameters = {};
+      platformAction.parameters[paramName] = value;
+    }
+  }
+
+  /**
+   * Check if parameter value is valid
+   */
+  private isValidParameterValue(value: any, param: ParameterDefinition): boolean {
+    if (!value && param.required !== false) return false;
+    if (param.validation) return param.validation(value);
+    
+    // Basic type validation
+    if (param.type === 'string') return typeof value === 'string' && value.trim().length > 0;
+    if (param.type === 'number') return !isNaN(Number(value));
+    
+    return true;
+  }
+
+  /**
+   * Extract parameter from user input using AI
+   */
+  private async extractParameterFromInput(
+    param: ParameterDefinition, 
+    userInput: string, 
+    context: RequestContext
+  ): Promise<string | null> {
+    try {
+      const extractedValue = await this.aiCore.extractParameter(
+        userInput, 
+        param.name, 
+        param.description, 
+        context
+      );
+      
+      if (extractedValue && this.isValidParameterValue(extractedValue, param)) {
+        return extractedValue;
+      }
+    } catch (error) {
+      // AI extraction failed, parameter will be marked as missing
+    }
+    
+    return null;
+  }
+
+  /**
+   * Create response prompting user for missing parameters
+   */
+  private createParameterPromptResponse(
+    validationResult: ParameterValidationResult, 
+    originalInput: string
+  ): AgentResponse {
+    const missingParams = validationResult.missingParameters;
+    const parameterList = missingParams.map(param => 
+      `- **${param.displayName}**: ${param.description}\n  *Example: ${param.example}*`
+    ).join('\n\n');
+    
+    const message = `I need some additional information to proceed with your request.`;
+    
+    const detailedResponse = `## 🤔 Missing Required Information
+
+I understand you want to perform this operation, but I need some additional details:
+
+${parameterList}
+
+### 💡 How to Provide Information
+
+You can provide the missing information in several ways:
+
+1. **All at once**: "Deploy nginx with 3 replicas"
+2. **Step by step**: Just tell me the resource name, and I'll ask for the next detail
+3. **Be specific**: Include the exact values in your next message
+
+### 🔄 Once you provide this information, I'll continue with your request.
+
+**Your original request**: "${originalInput}"`;
+
+    return AgentResponseSchema.parse({
+      success: false,
+      message,
+      detailedResponse,
+      data: {
+        missingParameters: missingParams,
+        originalRequest: originalInput,
+        requiresUserInput: true
+      },
+      actions: [],
+      metadata: {
+        originalInput,
+        missingParameters: missingParams.map(p => p.name),
+        status: 'awaiting_parameters'
+      },
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Direct access to approval module for web API (bypasses AI processing)
+   */
+  async getApprovalModule(): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error('Agent not initialized');
+    }
+    
+    const request = {
+      requestId: uuidv4(),
+      module: 'approval',
+      action: 'list-pending',
+      parameters: {},
+      context: {
+        userId: 'web-user',
+        sessionId: `web-session-${Date.now()}`,
+        originalRequest: 'list pending approvals',
+        environment: 'development' as const,
+        permissions: ['read', 'write', 'deploy'],
+        auditTrail: [],
+        timestamp: new Date().toISOString(),
+      },
+      priority: 'normal' as const,
+    };
+    
+    return this.communication.sendRequest(request);
+  }
+
+  /**
+   * Direct access to approval module for approve/reject actions
+   */
+  async processApprovalAction(action: string, approvalId: string, approverId: string, comments?: string): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error('Agent not initialized');
+    }
+    
+    const request = {
+      requestId: uuidv4(),
+      module: 'approval',
+      action: action,
+      parameters: {
+        approvalId,
+        approverId,
+        comments: comments || (action === 'approve' ? 'Approved via web interface' : 'Rejected via web interface'),
+        reason: action === 'reject' ? comments || 'Rejected via web interface' : undefined
+      },
+      context: {
+        userId: approverId,
+        sessionId: `web-session-${Date.now()}`,
+        originalRequest: `${action} approval ${approvalId}`,
+        environment: 'development' as const,
+        permissions: ['read', 'write', 'deploy', 'approve'],
+        auditTrail: [],
+        timestamp: new Date().toISOString(),
+      },
+      priority: 'normal' as const,
+    };
+    
+    return this.communication.sendRequest(request);
   }
 
   /**

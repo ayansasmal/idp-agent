@@ -114,6 +114,34 @@ export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
 
 // ============================================================================
+// Parameter Validation Types
+// ============================================================================
+
+export interface ParameterDefinition {
+  name: string;
+  displayName: string;
+  description: string;
+  example: string;
+  type: 'string' | 'number' | 'boolean';
+  required?: boolean;
+  validation?: (value: any) => boolean;
+}
+
+export interface MissingParameter {
+  name: string;
+  displayName: string;
+  description: string;
+  example: string;
+  required: boolean;
+}
+
+export interface ParameterValidationResult {
+  isValid: boolean;
+  missingParameters: MissingParameter[];
+  validatedAction: PlatformAction;
+}
+
+// ============================================================================
 // Module Configuration Types
 // ============================================================================
 

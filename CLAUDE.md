@@ -219,12 +219,14 @@ const response = await aiCore.chat(request); // Uses best available provider
 ### 3. Safety-First Operations
 All platform operations go through comprehensive safety validation:
 
+- **Parameter Validation**: Mandatory parameters validated before execution with AI-powered extraction and user prompting
 - **Reality Checks**: Validate against actual platform state
 - **Policy Compliance**: Check RBAC, quotas, environment rules  
 - **Risk Assessment**: Conservative risk evaluation with execution halting
 - **Permission Validation**: Missing permissions trigger approval workflows
 - **Human Approval**: Required for medium/high-risk operations with execution halt
 - **Execution Control**: Operations stop immediately when approval required
+- **Multi-Layer Validation**: Primary agent validation + module-level safety nets
 - **Audit Trail**: Complete logging for compliance
 
 ### 4. Conversational Interface
@@ -351,6 +353,44 @@ npm run dev:standalone  # Web app with embedded core agent
 - ✅ Persistent approval storage across chat sessions
 - ✅ Permission-based approval triggering (missing permissions → approval workflow)
 - ✅ Complete type safety and error handling
+
+### ✅ Phase 2.6: Parameter Validation System (COMPLETE)
+**Goal**: Ensure all operations have required parameters before execution
+
+**Problem Solved:**
+- **Incomplete Operations**: System would continue processing operations with missing mandatory parameters (e.g., deployment without resource name, scaling without replica count), leading to failures in downstream modules.
+
+**Solution Implemented:**
+- **Pre-Execution Validation**: Added comprehensive parameter validation before any module execution
+- **AI-Powered Parameter Extraction**: Uses AI to attempt extracting missing parameters from user input
+- **User-Friendly Prompting**: Rich prompts with examples when parameters are missing
+- **Multi-Layer Validation**: Primary validation at agent level + secondary validation in each module
+
+**Technical Details:**
+- **Files**: `PrimaryAgent.ts` (lines 614-827), `types/index.ts` (lines 120-142), `AICore.ts` (lines 136-169)
+- **Validation Flow**: AI intent parsing → parameter validation → user prompting (if needed) → execution
+- **Supported Parameters**: Resource name, replicas, container image, delete confirmation, action, environment
+- **AI Integration**: Anthropic Claude structured output for reliable parameter extraction
+
+**Parameter Validation Examples:**
+```bash
+# User: "deploy something" 
+# → AI Response: "I need the container image to deploy. Example: nginx:latest, myapp:v1.2.3"
+
+# User: "scale api-gateway"
+# → AI Response: "I need to know how many replicas. Example: 3, 5, 10"
+
+# User: "delete nginx"
+# → AI Response: "I need confirmation to delete. Please confirm with: yes, confirm, I understand"
+```
+
+**Key Improvements:**
+- ✅ No operations proceed with missing mandatory parameters
+- ✅ Intelligent parameter extraction from natural language input
+- ✅ User-friendly prompts with clear examples and guidance
+- ✅ Multi-layer validation architecture (agent + module levels)
+- ✅ Complete type safety and validation schemas
+- ✅ Consistent validation across all modules (Kubernetes, Safety, Audit, Approval)
 
 ### 🎯 Phase 3: Agent Extraction (Future)
 **Goal**: Convert modules to standalone agents without code changes
