@@ -67,10 +67,10 @@ export async function POST(req: NextRequest) {
     const sessionId = req.headers.get('x-session-id') || `web-session-${Date.now()}`;
     
     // Get or create session with conversation context
-    const session = sessionManager.getSession(sessionId, operationRequest.context.userId);
+    const session = await sessionManager.getSession(sessionId, operationRequest.context.userId);
     
     // Generate context prompt from conversation history
-    const contextPrompt = sessionManager.generateContextPrompt(sessionId);
+    const contextPrompt = await sessionManager.generateContextPrompt(sessionId);
     
     // Add user message to conversation history
     const userMessage: ConversationMessage = {
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       content: userInput,
       timestamp: new Date().toISOString()
     };
-    sessionManager.addMessage(sessionId, userMessage);
+    await sessionManager.addMessage(sessionId, userMessage);
 
     // Create enhanced user input with context
     const enhancedUserInput = contextPrompt ? `${contextPrompt}${userInput}` : userInput;
@@ -93,8 +93,8 @@ export async function POST(req: NextRequest) {
       permissions: operationRequest.context.permissions,
       auditTrail: [],
       timestamp: new Date().toISOString(),
-      conversationHistory: sessionManager.getConversationHistory(sessionId),
-      deployedResources: sessionManager.getDeployedResources(sessionId),
+      conversationHistory: await sessionManager.getConversationHistory(sessionId),
+      deployedResources: await sessionManager.getDeployedResources(sessionId),
       // Add namespace info for debugging
       ...(specificNamespace && { specificNamespace })
     };
@@ -109,9 +109,9 @@ export async function POST(req: NextRequest) {
     if (result.success && result.data) {
       // Extract resource info from successful deployments
       if (result.actions && result.actions.length > 0) {
-        result.actions.forEach((action: any) => {
+        result.actions.forEach(async (action: any) => {
           if (action.action === 'deploy' && action.resourceName) {
-            sessionManager.addDeployedResource(sessionId, {
+            await sessionManager.addDeployedResource(sessionId, {
               name: action.resourceName,
               type: action.resourceType || 'deployment',
               namespace: action.environment || 'default',
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
         actions: result.actions?.length || 0
       }
     };
-    sessionManager.addMessage(sessionId, assistantMessage);
+    await sessionManager.addMessage(sessionId, assistantMessage);
 
     // Return the response in chat format with detailed content
     const response = NextResponse.json({

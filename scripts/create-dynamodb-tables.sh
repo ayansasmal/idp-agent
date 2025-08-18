@@ -14,6 +14,7 @@ fi
 AWS_REGION=${AWS_REGION:-us-east-1}
 AWS_ENDPOINT=${AWS_ENDPOINT:-http://localhost:4566}
 APPROVALS_TABLE_NAME=${APPROVALS_TABLE_NAME:-ai-idp-approvals}
+CHAT_SESSIONS_TABLE_NAME=${CHAT_SESSIONS_TABLE_NAME:-ai-idp-chat-sessions}
 
 # Use awslocal for local development, aws for production
 if [ "${NODE_ENV}" = "production" ]; then
@@ -28,6 +29,7 @@ echo "📋 Configuration:"
 echo "  - AWS Region: ${AWS_REGION}"
 echo "  - AWS Endpoint: ${AWS_ENDPOINT}"
 echo "  - Approvals Table: ${APPROVALS_TABLE_NAME}"
+echo "  - Chat Sessions Table: ${CHAT_SESSIONS_TABLE_NAME}"
 echo ""
 
 # Function to check if table exists
@@ -78,40 +80,52 @@ create_approvals_table() {
   fi
 }
 
-# Function to create chat sessions table (for future chat persistence)
+# Function to create chat sessions table
 create_chat_sessions_table() {
-  local CHAT_SESSIONS_TABLE="${CHAT_SESSIONS_TABLE_NAME:-ai-idp-chat-sessions}"
-  
-  echo "🔄 Checking chat sessions table: ${CHAT_SESSIONS_TABLE}"
+  echo "🔄 Checking chat sessions table: ${CHAT_SESSIONS_TABLE_NAME}"
   
   # Check if table already exists
-  if table_exists "${CHAT_SESSIONS_TABLE}"; then
-    echo "✅ Table ${CHAT_SESSIONS_TABLE} already exists, skipping creation"
+  if table_exists "${CHAT_SESSIONS_TABLE_NAME}"; then
+    echo "✅ Table ${CHAT_SESSIONS_TABLE_NAME} already exists, skipping creation"
     return 0
   fi
 
-  echo "📝 Creating chat sessions table: ${CHAT_SESSIONS_TABLE}"
+  echo "📝 Creating chat sessions table: ${CHAT_SESSIONS_TABLE_NAME}"
 
-  # Create the table
+  # Create the table with proper schema for persistent chat sessions
   $AWS_CMD dynamodb create-table \
-    --table-name "${CHAT_SESSIONS_TABLE}" \
+    --table-name "${CHAT_SESSIONS_TABLE_NAME}" \
     --attribute-definitions \
       AttributeName=sessionId,AttributeType=S \
       AttributeName=userId,AttributeType=S \
-      AttributeName=timestamp,AttributeType=S \
+      AttributeName=lastActivity,AttributeType=S \
     --key-schema \
       AttributeName=sessionId,KeyType=HASH \
     --global-secondary-indexes \
-      IndexName=UserIndex,KeySchema="[{AttributeName=userId,KeyType=HASH},{AttributeName=timestamp,KeyType=RANGE}]",Projection="{ProjectionType=ALL}",ProvisionedThroughput="{ReadCapacityUnits=5,WriteCapacityUnits=5}" \
+      IndexName=UserIndex,KeySchema="[{AttributeName=userId,KeyType=HASH},{AttributeName=lastActivity,KeyType=RANGE}]",Projection="{ProjectionType=ALL}",ProvisionedThroughput="{ReadCapacityUnits=5,WriteCapacityUnits=5}" \
     --provisioned-throughput \
       ReadCapacityUnits=10,WriteCapacityUnits=10 \
     --region "${AWS_REGION}" \
     --endpoint-url "${AWS_ENDPOINT}"
 
   if [ $? -eq 0 ]; then
-    echo "✅ Table ${CHAT_SESSIONS_TABLE} created successfully"
+    echo "✅ Table ${CHAT_SESSIONS_TABLE_NAME} created successfully"
+    
+    # Enable TTL for automatic cleanup of old sessions
+    echo "⏰ Enabling TTL for automatic session cleanup..."
+    $AWS_CMD dynamodb update-time-to-live \
+      --table-name "${CHAT_SESSIONS_TABLE_NAME}" \
+      --time-to-live-specification Enabled=true,AttributeName=ttl \
+      --region "${AWS_REGION}" \
+      --endpoint-url "${AWS_ENDPOINT}" >/dev/null 2>&1
+    
+    if [ $? -eq 0 ]; then
+      echo "✅ TTL enabled for ${CHAT_SESSIONS_TABLE_NAME}"
+    else
+      echo "⚠️  Warning: Failed to enable TTL for ${CHAT_SESSIONS_TABLE_NAME}"
+    fi
   else
-    echo "❌ Failed to create table ${CHAT_SESSIONS_TABLE}"
+    echo "❌ Failed to create table ${CHAT_SESSIONS_TABLE_NAME}"
     return 1
   fi
 }
@@ -242,12 +256,10 @@ main() {
   wait_for_table "${APPROVALS_TABLE_NAME}"
   echo ""
 
-  # Optional: Create chat sessions table for future use
-  if [ "${CREATE_CHAT_SESSIONS_TABLE}" = "true" ]; then
-    create_chat_sessions_table
-    wait_for_table "${CHAT_SESSIONS_TABLE_NAME:-ai-idp-chat-sessions}"
-    echo ""
-  fi
+  # Create chat sessions table for persistent conversations
+  create_chat_sessions_table
+  wait_for_table "${CHAT_SESSIONS_TABLE_NAME}"
+  echo ""
 
   # Seed test data for development
   seed_test_data
@@ -257,12 +269,11 @@ main() {
   echo ""
   echo "📋 Summary:"
   echo "  ✅ Approvals table: ${APPROVALS_TABLE_NAME}"
-  if [ "${CREATE_CHAT_SESSIONS_TABLE}" = "true" ]; then
-    echo "  ✅ Chat sessions table: ${CHAT_SESSIONS_TABLE_NAME:-ai-idp-chat-sessions}"
-  fi
+  echo "  ✅ Chat sessions table: ${CHAT_SESSIONS_TABLE_NAME}"
   echo ""
   echo "🔧 Environment variables to set:"
   echo "  APPROVALS_TABLE_NAME=${APPROVALS_TABLE_NAME}"
+  echo "  CHAT_SESSIONS_TABLE_NAME=${CHAT_SESSIONS_TABLE_NAME}"
   echo "  AWS_REGION=${AWS_REGION}"
   echo "  AWS_ENDPOINT=${AWS_ENDPOINT}"
   echo ""

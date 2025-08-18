@@ -1,25 +1,85 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
 import { nanoid } from "nanoid";
 import type { ChatMessage } from "@/lib/types";
 
 export default function Chat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "Hello! I'm your AI platform engineering assistant. You can ask me to deploy applications, scale services, check status, or perform other platform operations. Try something like:\n\n• \"Deploy my Node.js app to staging\"\n• \"Scale my payment service to 5 replicas\"\n• \"Show me the status of my production services\"\n\nWhat would you like to do?",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
-  
+  const searchParams = useSearchParams();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+
+  // Check for session ID in URL params
+  useEffect(() => {
+    const sessionId = searchParams?.get('sessionId');
+    if (sessionId) {
+      sessionIdRef.current = sessionId;
+      loadSession(sessionId);
+    } else {
+      // Show welcome message for new sessions
+      setMessages([{
+        id: "welcome",
+        role: "assistant",
+        content: "Hello! I'm your AI platform engineering assistant. You can ask me to deploy applications, scale services, check status, or perform other platform operations. Try something like:\n\n• \"Deploy my Node.js app to staging\"\n• \"Scale my payment service to 5 replicas\"\n• \"Show me the status of my production services\"\n\nWhat would you like to do?",
+        timestamp: new Date().toISOString(),
+      }]);
+    }
+  }, [searchParams]);
+
+  const loadSession = async (sessionId: string) => {
+    try {
+      setIsLoadingSession(true);
+      const response = await fetch(`/api/sessions/${sessionId}`);
+      const data = await response.json();
+      
+      if (data.success && data.session) {
+        const session = data.session;
+        setSessionTitle(session.title);
+        
+        // Convert session messages to ChatMessage format
+        const chatMessages: ChatMessage[] = session.messages.map((msg: any) => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          metadata: msg.metadata,
+          detailedContent: msg.detailedContent,
+          rawData: msg.rawData
+        }));
+        
+        setMessages(chatMessages);
+      } else {
+        setError(new Error('Failed to load session'));
+        // Fallback to welcome message
+        setMessages([{
+          id: "welcome",
+          role: "assistant",
+          content: "Hello! I'm your AI platform engineering assistant. What would you like to do?",
+          timestamp: new Date().toISOString(),
+        }]);
+      }
+    } catch (err) {
+      console.error('Error loading session:', err);
+      setError(err instanceof Error ? err : new Error('Failed to load session'));
+      // Fallback to welcome message
+      setMessages([{
+        id: "welcome",
+        role: "assistant",
+        content: "Hello! I'm your AI platform engineering assistant. What would you like to do?",
+        timestamp: new Date().toISOString(),
+      }]);
+    } finally {
+      setIsLoadingSession(false);
+    }
+  };
   
   const context = {
     userId: "web-user",
@@ -124,14 +184,31 @@ export default function Chat() {
       {/* Header */}
       <div className="border-b bg-gray-50 px-6 py-4 rounded-t-2xl">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Platform Agent</h2>
-            <p className="text-sm text-gray-500">Natural language platform operations</p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center space-x-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {sessionTitle || 'Platform Agent'}
+                </h2>
+                <p className="text-sm text-gray-500">Natural language platform operations</p>
+              </div>
+              {sessionIdRef.current && (
+                <a
+                  href="/sessions"
+                  className="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  All Sessions
+                </a>
+              )}
+            </div>
           </div>
           <div className="flex items-center space-x-2">
+            {isLoadingSession && (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+            )}
             <div className={`h-2 w-2 rounded-full ${isLoading ? 'bg-yellow-400' : 'bg-green-400'}`}></div>
             <span className="text-xs text-gray-500">
-              {isLoading ? 'Processing...' : 'Ready'}
+              {isLoadingSession ? 'Loading...' : isLoading ? 'Processing...' : 'Ready'}
             </span>
           </div>
         </div>

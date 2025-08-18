@@ -30,6 +30,7 @@ export default function RootLayout({
               </div>
               <div className="flex space-x-4">
                 <a href="/chat" className="text-sm text-gray-600 hover:text-indigo-600">Chat</a>
+                <a href="/sessions" className="text-sm text-gray-600 hover:text-indigo-600">Sessions</a>
                 <a href="/approvals" className="text-sm text-gray-600 hover:text-indigo-600">Approvals</a>
               </div>
             </nav>

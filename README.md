@@ -42,7 +42,7 @@ docker-compose up -d
 npx prisma migrate dev
 npx prisma generate
 
-# Setup DynamoDB tables for approval persistence
+# Setup DynamoDB tables for approvals and chat sessions
 ./scripts/create-dynamodb-tables.sh
 
 # Start development (web app with integrated core agent)

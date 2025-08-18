@@ -1,236 +1,227 @@
 /**
  * Session Manager for handling conversation context and memory
+ * Now uses DynamoDB for persistent storage across sessions
  */
 
-export interface ConversationMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  metadata?: any;
-}
+import { 
+  dynamoSessionStore, 
+  PersistentSessionContext, 
+  PersistentConversationMessage, 
+  PersistentResourceReference 
+} from './dynamodb-session-store';
 
-export interface SessionContext {
-  sessionId: string;
-  userId: string;
-  messages: ConversationMessage[];
-  deployedResources: ResourceReference[];
-  lastActivity: string;
-  environment: string;
-  permissions: string[];
-}
-
-export interface ResourceReference {
-  name: string;
-  type: string;
-  namespace: string;
-  status: string;
-  deployedAt: string;
-  lastChecked?: string;
-}
+// Export types for compatibility
+export type ConversationMessage = PersistentConversationMessage;
+export type ResourceReference = PersistentResourceReference;
+export type SessionContext = PersistentSessionContext;
 
 class SessionManager {
-  private sessions: Map<string, SessionContext> = new Map();
-  private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+  private store = dynamoSessionStore;
+  private readonly SESSION_TIMEOUT = 30 * 24 * 60 * 60 * 1000; // 30 days for persistent sessions
 
   /**
    * Get or create a session
    */
-  getSession(sessionId: string, userId: string = 'web-user'): SessionContext {
-    let session = this.sessions.get(sessionId);
-    
-    if (!session) {
-      session = {
+  async getSession(sessionId: string, userId: string = 'web-user'): Promise<SessionContext> {
+    try {
+      let session = await this.store.getSession(sessionId);
+      
+      if (!session) {
+        session = {
+          sessionId,
+          userId,
+          title: 'New Chat',
+          messages: [],
+          deployedResources: [],
+          createdAt: new Date().toISOString(),
+          lastActivity: new Date().toISOString(),
+          environment: 'development',
+          permissions: ['read', 'write', 'deploy'],
+          isActive: true,
+          messageCount: 0,
+          resourceCount: 0
+        };
+        await this.store.saveSession(session);
+      } else {
+        // Update activity timestamp
+        await this.store.updateActivity(sessionId);
+      }
+      
+      return session;
+    } catch (error) {
+      console.error('Failed to get/create session:', error);
+      // Fallback to in-memory session for this request
+      return {
         sessionId,
         userId,
+        title: 'Temporary Chat',
         messages: [],
         deployedResources: [],
+        createdAt: new Date().toISOString(),
         lastActivity: new Date().toISOString(),
         environment: 'development',
-        permissions: ['read', 'write', 'deploy']
+        permissions: ['read', 'write', 'deploy'],
+        isActive: true,
+        messageCount: 0,
+        resourceCount: 0
       };
-      this.sessions.set(sessionId, session);
-    } else {
-      session.lastActivity = new Date().toISOString();
     }
-    
-    return session;
   }
 
   /**
    * Add a message to the conversation history
    */
-  addMessage(sessionId: string, message: ConversationMessage): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.messages.push(message);
-      session.lastActivity = new Date().toISOString();
-      
-      // Keep only last 50 messages to prevent memory bloat
-      if (session.messages.length > 50) {
-        session.messages = session.messages.slice(-50);
-      }
+  async addMessage(sessionId: string, message: ConversationMessage): Promise<void> {
+    try {
+      await this.store.addMessage(sessionId, message);
+    } catch (error) {
+      console.error('Failed to add message to session:', error);
+      // Continue without throwing to avoid disrupting chat flow
     }
   }
 
   /**
    * Get conversation history for context
    */
-  getConversationHistory(sessionId: string, limit: number = 10): ConversationMessage[] {
-    const session = this.sessions.get(sessionId);
-    if (!session) return [];
-    
-    // Return last N messages for context
-    return session.messages.slice(-limit);
+  async getConversationHistory(sessionId: string, limit: number = 10): Promise<ConversationMessage[]> {
+    try {
+      const session = await this.store.getSession(sessionId);
+      if (!session) return [];
+      
+      // Return last N messages for context
+      return session.messages.slice(-limit);
+    } catch (error) {
+      console.error('Failed to get conversation history:', error);
+      return [];
+    }
   }
 
   /**
    * Add or update a deployed resource reference
    */
-  addDeployedResource(sessionId: string, resource: Omit<ResourceReference, 'deployedAt'>): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      const existingIndex = session.deployedResources.findIndex(
-        r => r.name === resource.name && r.namespace === resource.namespace
-      );
-      
-      const resourceWithTimestamp = {
-        ...resource,
-        deployedAt: new Date().toISOString(),
-        lastChecked: new Date().toISOString()
-      };
-      
-      if (existingIndex >= 0) {
-        session.deployedResources[existingIndex] = resourceWithTimestamp;
-      } else {
-        session.deployedResources.push(resourceWithTimestamp);
-      }
-      
-      session.lastActivity = new Date().toISOString();
+  async addDeployedResource(sessionId: string, resource: Omit<ResourceReference, 'deployedAt'>): Promise<void> {
+    try {
+      await this.store.addDeployedResource(sessionId, resource);
+    } catch (error) {
+      console.error('Failed to add deployed resource:', error);
+      // Continue without throwing to avoid disrupting operations
     }
   }
 
   /**
    * Get deployed resources for context resolution
    */
-  getDeployedResources(sessionId: string): ResourceReference[] {
-    const session = this.sessions.get(sessionId);
-    return session?.deployedResources || [];
+  async getDeployedResources(sessionId: string): Promise<ResourceReference[]> {
+    try {
+      const session = await this.store.getSession(sessionId);
+      return session?.deployedResources || [];
+    } catch (error) {
+      console.error('Failed to get deployed resources:', error);
+      return [];
+    }
   }
 
   /**
    * Find resources by partial name for context resolution
    */
-  findResourcesByName(sessionId: string, partialName: string): ResourceReference[] {
-    const resources = this.getDeployedResources(sessionId);
-    const lowerQuery = partialName.toLowerCase();
-    
-    return resources.filter(resource => 
-      resource.name.toLowerCase().includes(lowerQuery) ||
-      resource.type.toLowerCase().includes(lowerQuery)
-    );
+  async findResourcesByName(sessionId: string, partialName: string): Promise<ResourceReference[]> {
+    try {
+      return await this.store.findResourcesByName(sessionId, partialName);
+    } catch (error) {
+      console.error('Failed to find resources by name:', error);
+      return [];
+    }
   }
 
   /**
    * Get the most recently deployed resource of a type
    */
-  getRecentResource(sessionId: string, type?: string): ResourceReference | null {
-    const resources = this.getDeployedResources(sessionId);
-    
-    let filtered = resources;
-    if (type) {
-      filtered = resources.filter(r => r.type.toLowerCase() === type.toLowerCase());
+  async getRecentResource(sessionId: string, type?: string): Promise<ResourceReference | null> {
+    try {
+      return await this.store.getRecentResource(sessionId, type);
+    } catch (error) {
+      console.error('Failed to get recent resource:', error);
+      return null;
     }
-    
-    if (filtered.length === 0) return null;
-    
-    // Sort by deployment time and return most recent
-    return filtered.sort((a, b) => 
-      new Date(b.deployedAt).getTime() - new Date(a.deployedAt).getTime()
-    )[0];
-  }
-
-  /**
-   * Cleanup expired sessions
-   */
-  cleanup(): void {
-    const now = Date.now();
-    const expiredSessions: string[] = [];
-    
-    for (const [sessionId, session] of this.sessions.entries()) {
-      const lastActivity = new Date(session.lastActivity).getTime();
-      if (now - lastActivity > this.SESSION_TIMEOUT) {
-        expiredSessions.push(sessionId);
-      }
-    }
-    
-    expiredSessions.forEach(sessionId => {
-      this.sessions.delete(sessionId);
-    });
   }
 
   /**
    * Generate conversation context for AI
    */
-  generateContextPrompt(sessionId: string): string {
-    const session = this.sessions.get(sessionId);
-    if (!session) return '';
-    
-    const resources = session.deployedResources;
-    const recentMessages = session.messages.slice(-5); // Last 5 messages for context
-    
-    let contextPrompt = '';
-    
-    if (resources.length > 0) {
-      contextPrompt += '## Previously Deployed Resources:\n';
-      resources.forEach(resource => {
-        contextPrompt += `- **${resource.name}** (${resource.type}) in namespace "${resource.namespace}" - Status: ${resource.status}\n`;
-      });
-      contextPrompt += '\n';
+  async generateContextPrompt(sessionId: string): Promise<string> {
+    try {
+      return await this.store.generateContextPrompt(sessionId);
+    } catch (error) {
+      console.error('Failed to generate context prompt:', error);
+      return '';
     }
-    
-    if (recentMessages.length > 0) {
-      contextPrompt += '## Recent Conversation:\n';
-      recentMessages.forEach(msg => {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        contextPrompt += `**${role}**: ${msg.content}\n`;
-      });
-      contextPrompt += '\n';
+  }
+
+  /**
+   * Get recent sessions for a user
+   */
+  async getRecentSessions(userId: string, limit: number = 10): Promise<SessionContext[]> {
+    try {
+      return await this.store.getRecentSessions(userId, limit);
+    } catch (error) {
+      console.error('Failed to get recent sessions:', error);
+      return [];
     }
-    
-    if (contextPrompt) {
-      contextPrompt += '## Current Request:\n';
-      contextPrompt += 'When the user refers to "it", "this", "that", or uses pronouns, refer to the context above. ';
-      contextPrompt += 'If they mention a resource name that was previously deployed, use that context.\n\n';
+  }
+
+  /**
+   * Deactivate a session (soft delete)
+   */
+  async deactivateSession(sessionId: string): Promise<void> {
+    try {
+      await this.store.deactivateSession(sessionId);
+    } catch (error) {
+      console.error('Failed to deactivate session:', error);
+      throw error;
     }
-    
-    return contextPrompt;
+  }
+
+  /**
+   * Delete a session permanently
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    try {
+      await this.store.deleteSession(sessionId);
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      throw error;
+    }
   }
 
   /**
    * Get session statistics
    */
-  getStats(): { activeSessions: number; totalMessages: number; totalResources: number } {
-    let totalMessages = 0;
-    let totalResources = 0;
-    
-    for (const session of this.sessions.values()) {
-      totalMessages += session.messages.length;
-      totalResources += session.deployedResources.length;
-    }
-    
+  async getStats(): Promise<{ activeSessions: number; totalMessages: number; totalResources: number }> {
+    // This would require additional queries in a real implementation
+    // For now, return basic stats
     return {
-      activeSessions: this.sessions.size,
-      totalMessages,
-      totalResources
+      activeSessions: 0, // Would need to scan all sessions
+      totalMessages: 0, // Would need to sum all message counts
+      totalResources: 0 // Would need to sum all resource counts
     };
+  }
+
+  /**
+   * Health check for the session store
+   */
+  async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; message: string }> {
+    try {
+      return await this.store.healthCheck();
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        message: `Session store health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+    }
   }
 }
 
 // Export singleton instance
 export const sessionManager = new SessionManager();
 
-// Cleanup expired sessions every 5 minutes
-setInterval(() => {
-  sessionManager.cleanup();
-}, 5 * 60 * 1000);
+// Note: DynamoDB TTL handles automatic cleanup of expired sessions
