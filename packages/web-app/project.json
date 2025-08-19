@@ -1,0 +1,57 @@
+{
+  "name": "web-app",
+  "root": "packages/web-app",
+  "sourceRoot": "packages/web-app/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "packages/web-app/.next"
+      },
+      "configurations": {
+        "development": {
+          "outputPath": "packages/web-app/.next"
+        },
+        "production": {
+          "outputPath": "packages/web-app/.next"
+        }
+      }
+    },
+    "dev": {
+      "executor": "@nx/next:dev",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "web-app:build",
+        "dev": true,
+        "port": 3002
+      }
+    },
+    "start": {
+      "executor": "@nx/next:serve",
+      "defaultConfiguration": "production",
+      "options": {
+        "buildTarget": "web-app:build:production",
+        "port": 3002
+      }
+    },
+    "type-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit",
+        "cwd": "packages/web-app"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "next lint",
+        "cwd": "packages/web-app"
+      }
+    }
+  },
+  "tags": ["scope:frontend", "type:app"],
+  "implicitDependencies": ["core"]
+}

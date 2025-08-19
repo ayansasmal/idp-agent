@@ -1,0 +1,40 @@
+{
+  "name": "core",
+  "root": "packages/core",
+  "sourceRoot": "packages/core/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "packages/core/dist",
+        "main": "packages/core/src/index.ts",
+        "tsConfig": "packages/core/tsconfig.json",
+        "assets": []
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsx watch src/index.ts",
+        "cwd": "packages/core"
+      }
+    },
+    "type-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit",
+        "cwd": "packages/core"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest",
+        "cwd": "packages/core"
+      }
+    }
+  },
+  "tags": ["scope:backend", "type:library"]
+}
