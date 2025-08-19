@@ -18,7 +18,7 @@ export const ModuleRequestSchema = z.object({
   requestId: z.string(),
   module: z.string(),
   action: z.string(),
-  parameters: z.record(z.any()),
+  parameters: z.record(z.string(), z.any()),
   context: RequestContextSchema,
   requestingModule: z.string().optional(),
   priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
@@ -29,7 +29,7 @@ export const ModuleResponseSchema = z.object({
   requestId: z.string(),
   success: z.boolean(),
   result: z.any(),
-  metadata: z.record(z.any()).default({}),
+  metadata: z.record(z.string(), z.any()).default({}),
   nextActions: z.array(ModuleRequestSchema).default([]),
   errors: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
@@ -51,11 +51,11 @@ export const ValidationResultSchema = z.object({
 // ============================================================================
 
 export const PlatformActionSchema = z.object({
-  action: z.enum(['deploy', 'scale', 'status', 'logs', 'delete', 'rollback', 'list', 'describe']),
+  action: z.enum(['deploy', 'scale', 'status', 'logs', 'delete', 'rollback', 'list', 'describe', 'port-forward']),
   resourceType: z.enum(['application', 'database', 'service', 'ingress']),
   resourceName: z.string(),
   environment: z.enum(['development', 'staging', 'production']),
-  parameters: z.record(z.any()).default({}),
+  parameters: z.record(z.string(), z.any()).default({}),
   explanation: z.string(),
   rollbackPlan: z.string(),
   riskLevel: z.enum(['low', 'medium', 'high', 'critical']),
@@ -70,7 +70,7 @@ export const IntentAnalysisSchema = z.object({
   confidence: z.number().min(0).max(1),
   requiresValidation: z.boolean(),
   requiresApproval: z.boolean(),
-  additionalContext: z.record(z.any()).default({}),
+  additionalContext: z.record(z.string(), z.any()).default({}),
 });
 
 // ============================================================================
@@ -83,7 +83,7 @@ export const AgentResponseSchema = z.object({
   detailedResponse: z.string().optional(),
   data: z.any().optional(),
   actions: z.array(PlatformActionSchema).default([]),
-  metadata: z.record(z.any()).default({}),
+  metadata: z.record(z.string(), z.any()).default({}),
   timestamp: z.string(),
 });
 
@@ -93,7 +93,7 @@ export const AgentResponseSchema = z.object({
 
 export const HealthStatusSchema = z.object({
   status: z.enum(['healthy', 'degraded', 'unhealthy']),
-  checks: z.record(z.object({
+  checks: z.record(z.string(), z.object({
     status: z.enum(['pass', 'fail', 'warn']),
     message: z.string().optional(),
     responseTime: z.number().optional(),

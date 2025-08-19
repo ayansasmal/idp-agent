@@ -255,18 +255,18 @@ export class PrimaryAgent {
       module: 'audit',
       action: 'log_action',
       parameters: {
-        action: platformAction,
+        action: intent.platformAction,
         context,
         result: 'pending', // Will be updated after execution
       },
-      dependsOn: [this.getModuleForAction(platformAction.action)],
+      dependsOn: [this.getModuleForAction(intent.platformAction.action)],
       critical: false, // Audit failure shouldn't stop execution
     });
 
     return {
       steps,
       requiresApproval: intent.requiresApproval, // Initial value, will be updated based on safety assessment
-      riskLevel: platformAction.riskLevel,
+      riskLevel: intent.platformAction.riskLevel,
     };
   }
 

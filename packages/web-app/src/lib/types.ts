@@ -2,10 +2,10 @@ import { z } from 'zod';
 
 export const ApprovalSchema = z.object({
   id: z.string(),
-  state: z.enum(['PENDING', 'APPROVED', 'REJECTED']),
+  state: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED']),
   resource: z.string(),
   action: z.string(),
-  parameters: z.record(z.any()),
+  parameters: z.record(z.string(), z.any()),
   diff: z.string(),
   explanation: z.string(),
   rollbackPlan: z.string(),
@@ -26,7 +26,7 @@ export const ChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string(),
   timestamp: z.string(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
   detailedContent: z.string().optional(),
   rawData: z.any().optional(),
 });

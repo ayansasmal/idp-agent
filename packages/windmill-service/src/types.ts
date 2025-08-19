@@ -6,13 +6,13 @@ import { z } from 'zod';
 
 export const WindmillScriptSchema = z.object({
   path: z.string().describe('Windmill script path (e.g., "u/user/kubectl-deploy")'),
-  parameters: z.record(z.any()).default({}),
-  metadata: z.record(z.any()).default({})
+  parameters: z.record(z.string(), z.any()).default({}),
+  metadata: z.record(z.string(), z.any()).default({})
 });
 
 export const WindmillWorkflowSchema = z.object({
   path: z.string().describe('Windmill workflow path'),
-  parameters: z.record(z.any()).default({}),
+  parameters: z.record(z.string(), z.any()).default({}),
   steps: z.array(WindmillScriptSchema).optional()
 });
 
@@ -44,7 +44,7 @@ export const KubectlOperationSchema = z.object({
   resourceName: z.string(),
   namespace: z.string().default('default'),
   environment: z.enum(['development', 'staging', 'production']),
-  parameters: z.record(z.any()).default({}),
+  parameters: z.record(z.string(), z.any()).default({}),
   approvalRequired: z.boolean().default(false)
 });
 

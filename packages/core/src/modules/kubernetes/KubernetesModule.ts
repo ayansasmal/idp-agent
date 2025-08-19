@@ -503,14 +503,13 @@ export class KubernetesModule extends BaseModule {
       const logs = await this.k8sApi.readNamespacedPodLog(
         podName,
         resolvedNamespace,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        lines
+        undefined, // container
+        undefined, // follow
+        undefined, // previous
+        undefined, // pretty
+        undefined, // sinceSeconds
+        lines, // tailLines
+        undefined // timestamps
       );
 
       return this.createFormattedResponse(
@@ -862,14 +861,7 @@ export class KubernetesModule extends BaseModule {
         try {
           const logs = await this.k8sApi!.readNamespacedPodLog(
             podName,
-            namespace,
-            undefined, // container
-            undefined, // follow
-            undefined, // previous
-            undefined, // pretty
-            undefined, // sinceSeconds
-            100, // tailLines - get last 100 lines
-            undefined // timestamps
+            namespace
           );
 
           return {

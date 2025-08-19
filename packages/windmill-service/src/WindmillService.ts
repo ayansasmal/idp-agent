@@ -24,13 +24,19 @@ export class WindmillService implements WindmillServiceInterface {
     });
 
     // Validate and set configuration
-    this.config = WindmillConfigSchema.parse(config);
+    this.config = {
+      baseUrl: config.baseUrl || 'http://localhost:8000',
+      workspace: config.workspace || 'admins', 
+      timeout: config.timeout || 30000,
+      retries: config.retries || 3,
+      token: config.token
+    };
     
-    this.logger.info('WindmillService initialized', {
+    this.logger.info({
       baseUrl: this.config.baseUrl,
       workspace: this.config.workspace,
       timeout: this.config.timeout
-    });
+    }, 'WindmillService initialized');
   }
 
   /**
@@ -45,15 +51,15 @@ export class WindmillService implements WindmillServiceInterface {
       await this.healthCheck();
       this.isInitialized = true;
       
-      this.logger.info('Successfully connected to Windmill', {
+      this.logger.info({
         baseUrl: this.config.baseUrl,
         workspace: this.config.workspace
-      });
+      }, 'Successfully connected to Windmill');
     } catch (error) {
-      this.logger.error('Failed to initialize Windmill connection', {
+      this.logger.error({
         error: error instanceof Error ? error.message : 'Unknown error',
         config: this.config
-      });
+      }, 'Failed to initialize Windmill connection');
       throw error;
     }
   }
@@ -65,10 +71,10 @@ export class WindmillService implements WindmillServiceInterface {
     this.ensureInitialized();
     
     const startTime = Date.now();
-    this.logger.info('Executing Windmill script', { 
+    this.logger.info({ 
       path: script.path, 
       parameters: script.parameters 
-    });
+    }, 'Executing Windmill script');
 
     try {
       // Run script asynchronously and get job ID
@@ -81,19 +87,19 @@ export class WindmillService implements WindmillServiceInterface {
       // Wait for completion with timeout
       const result = await this.waitForCompletion(jobId, this.config.timeout);
       
-      this.logger.info('Script execution completed', {
+      this.logger.info({
         path: script.path,
         jobId,
         status: result.status,
         duration: Date.now() - startTime
-      });
+      }, 'Script execution completed');
 
       return result;
     } catch (error) {
-      this.logger.error('Script execution failed', {
+      this.logger.error({
         path: script.path,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Script execution failed');
 
       return {
         jobId: 'failed',
@@ -113,10 +119,10 @@ export class WindmillService implements WindmillServiceInterface {
     this.ensureInitialized();
     
     const startTime = Date.now();
-    this.logger.info('Executing Windmill workflow', { 
+    this.logger.info({ 
       path: workflow.path, 
       parameters: workflow.parameters 
-    });
+    }, 'Executing Windmill workflow');
 
     try {
       const jobId = await wmill.runFlowAsync(
@@ -127,19 +133,19 @@ export class WindmillService implements WindmillServiceInterface {
 
       const result = await this.waitForCompletion(jobId, this.config.timeout);
       
-      this.logger.info('Workflow execution completed', {
+      this.logger.info({
         path: workflow.path,
         jobId,
         status: result.status,
         duration: Date.now() - startTime
-      });
+      }, 'Workflow execution completed');
 
       return result;
     } catch (error) {
-      this.logger.error('Workflow execution failed', {
+      this.logger.error({
         path: workflow.path,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Workflow execution failed');
 
       return {
         jobId: 'failed',
@@ -174,10 +180,10 @@ export class WindmillService implements WindmillServiceInterface {
         duration: job.type === 'CompletedJob' ? (job as any).duration_ms : undefined
       });
     } catch (error) {
-      this.logger.error('Failed to get job status', {
+      this.logger.error({
         jobId,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Failed to get job status');
 
       return {
         jobId,
@@ -198,10 +204,10 @@ export class WindmillService implements WindmillServiceInterface {
       const job = await JobService.getJob({ workspace: this.config.workspace, id: jobId });
       return job.type === 'CompletedJob' ? (job as any).logs || '' : '';
     } catch (error) {
-      this.logger.error('Failed to get job logs', {
+      this.logger.error({
         jobId,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Failed to get job logs');
       return '';
     }
   }
@@ -215,17 +221,17 @@ export class WindmillService implements WindmillServiceInterface {
     try {
       // This is a placeholder - actual implementation would use Windmill's script deployment API
       // For now, we assume scripts are manually deployed to Windmill
-      this.logger.info('Script deployment requested', { path });
+      this.logger.info({ path }, 'Script deployment requested');
       
       return {
         success: true,
         path
       };
     } catch (error) {
-      this.logger.error('Script deployment failed', {
+      this.logger.error({
         path,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Script deployment failed');
 
       return {
         success: false,
@@ -253,9 +259,9 @@ export class WindmillService implements WindmillServiceInterface {
         'u/admin/kubectl-delete'
       ];
     } catch (error) {
-      this.logger.error('Failed to list scripts', {
+      this.logger.error({
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Failed to list scripts');
       return [];
     }
   }
@@ -267,12 +273,12 @@ export class WindmillService implements WindmillServiceInterface {
     const startTime = Date.now();
     const scriptPath = `u/admin/kubectl-${operation.action}`;
     
-    this.logger.info('Executing kubectl operation via Windmill', {
+    this.logger.info({
       action: operation.action,
       resourceName: operation.resourceName,
       namespace: operation.namespace,
       scriptPath
-    });
+    }, 'Executing kubectl operation via Windmill');
 
     try {
       const script: WindmillScript = {
@@ -307,10 +313,10 @@ export class WindmillService implements WindmillServiceInterface {
         }
       };
     } catch (error) {
-      this.logger.error('kubectl operation failed', {
+      this.logger.error({
         operation: operation.action,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'kubectl operation failed');
 
       return {
         success: false,
@@ -337,9 +343,9 @@ export class WindmillService implements WindmillServiceInterface {
         version: this.config.workspace || 'unknown'
       };
     } catch (error) {
-      this.logger.error('Health check failed', {
+      this.logger.error({
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, 'Health check failed');
 
       return {
         healthy: false

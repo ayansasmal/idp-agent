@@ -84,17 +84,15 @@ export class ApprovalModule extends BaseModule {
         duration
       });
 
-      return {
-        success: false,
-        message: `Approval operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date().toISOString(),
-        data: null,
-        metadata: {
+      return this.createErrorResponse(
+        request.requestId,
+        `Approval operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        {
           module: 'approval',
           action: request.action,
           error: error instanceof Error ? error.message : 'Unknown error'
         }
-      };
+      );
     }
   }
 
@@ -103,17 +101,17 @@ export class ApprovalModule extends BaseModule {
 
     switch (action) {
       case 'request-approval':
-        return this.requestApproval(parameters, request.context);
+        return this.requestApproval(request.requestId, parameters, request.context);
       case 'check-approval':
-        return this.checkApproval(parameters.approvalId);
+        return this.checkApproval(request.requestId, parameters.approvalId);
       case 'approve':
-        return this.approveRequest(parameters.approvalId, parameters.approverId, parameters.comments);
+        return this.approveRequest(request.requestId, parameters.approvalId, parameters.approverId, parameters.comments);
       case 'reject':
-        return this.rejectRequest(parameters.approvalId, parameters.approverId, parameters.reason);
+        return this.rejectRequest(request.requestId, parameters.approvalId, parameters.approverId, parameters.reason);
       case 'list-pending':
-        return this.listPendingApprovals(request.context);
+        return this.listPendingApprovals(request.requestId, request.context);
       case 'escalate':
-        return this.escalateApproval(parameters.approvalId, parameters.reason);
+        return this.escalateApproval(request.requestId, parameters.approvalId, parameters.reason);
       case 'timeout-check':
         return this.checkTimeouts();
       default:
@@ -121,7 +119,7 @@ export class ApprovalModule extends BaseModule {
     }
   }
 
-  async requestApproval(params: any, context: RequestContext): Promise<ModuleResponse> {
+  async requestApproval(requestId: string, params: any, context: RequestContext): Promise<ModuleResponse> {
     const { platformAction, riskLevel, justification, urgency = 'normal', confidence = 0.85 } = params;
 
     // Generate unique approval ID
@@ -166,38 +164,35 @@ export class ApprovalModule extends BaseModule {
       approvers: approvalRequirements.approvers
     });
 
-    return {
-      success: true,
-      message: `Approval request created for ${platformAction.action} operation`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createSuccessResponse(
+      requestId,
+      {
         approvalId,
         status: 'pending',
         requirements: approvalRequirements,
         expiresAt: approvalRequest.expiresAt,
         notifications
       },
-      metadata: {
+      {
         module: 'approval',
         action: 'request-approval'
-      }
-    };
+      },
+      `Approval request created for ${platformAction.action} operation`
+    );
   }
 
-  async checkApproval(approvalId: string): Promise<ModuleResponse> {
+  async checkApproval(requestId: string, approvalId: string): Promise<ModuleResponse> {
     const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
-      return {
-        success: false,
-        message: `Approval request ${approvalId} not found`,
-        timestamp: new Date().toISOString(),
-        data: null,
-        metadata: {
+      return this.createErrorResponse(
+        requestId,
+        `Approval request ${approvalId} not found`,
+        {
           module: 'approval',
           action: 'check-approval'
         }
-      };
+      );
     }
 
     // Check if approval has expired

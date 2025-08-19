@@ -70,7 +70,7 @@ export async function GET() {
     const webApprovals = coreApprovals.map(convertToWebApproval);
     
     // Sort by creation date, newest first
-    const sortedApprovals = webApprovals.sort((a, b) => 
+    const sortedApprovals = webApprovals.sort((a: any, b: any) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     

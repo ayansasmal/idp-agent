@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Chat from "@/components/Chat";
 
 export default function ChatPage() {
@@ -10,7 +11,13 @@ export default function ChatPage() {
         </p>
       </div>
       
-      <Chat />
+      <Suspense fallback={
+        <div className="flex justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+      }>
+        <Chat />
+      </Suspense>
 
       <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
         <h3 className="text-sm font-medium text-blue-800 mb-2">Example Operations:</h3>
