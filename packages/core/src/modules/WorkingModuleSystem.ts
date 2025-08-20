@@ -91,14 +91,17 @@ export class ModuleCommunicationLayer {
 
         // Convert simple response format
         if ('success' in response && 'message' in response) {
+          const legacyResponse = response as any;
           return {
             requestId: request.requestId,
-            success: response.success,
-            result: (response as any).data || null,
-            metadata: (response as any).metadata || { module: request.module },
+            success: legacyResponse.success,
+            result: legacyResponse.data || null,
+            metadata: legacyResponse.metadata || { module: request.module },
             nextActions: [],
-            errors: response.success ? [] : [response.message as string],
-            warnings: []
+            errors: legacyResponse.success ? [] : [legacyResponse.message as string],
+            warnings: [],
+            message: legacyResponse.message || 'Operation completed',
+            timestamp: new Date().toISOString()
           };
         }
       }
@@ -111,7 +114,9 @@ export class ModuleCommunicationLayer {
         metadata: { module: request.module },
         nextActions: [],
         errors: [],
-        warnings: []
+        warnings: [],
+        message: 'Operation completed',
+        timestamp: new Date().toISOString()
       };
     } catch (error) {
       return {
@@ -121,7 +126,9 @@ export class ModuleCommunicationLayer {
         metadata: { module: request.module, error: error instanceof Error ? error.message : 'Unknown error' },
         nextActions: [],
         errors: [error instanceof Error ? error.message : 'Unknown error'],
-        warnings: []
+        warnings: [],
+        message: `Module communication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date().toISOString()
       };
     }
   }
