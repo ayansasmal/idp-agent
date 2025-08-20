@@ -66,17 +66,15 @@ export class SafetyModule extends BaseModule {
         duration
       });
 
-      return {
-        success: false,
-        message: `Safety validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date().toISOString(),
-        data: null,
-        metadata: {
+      return this.createErrorResponse(
+        request.requestId,
+        `Safety validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        {
           module: 'safety',
           action: request.action,
           error: error instanceof Error ? error.message : 'Unknown error'
         }
-      };
+      );
     }
   }
 

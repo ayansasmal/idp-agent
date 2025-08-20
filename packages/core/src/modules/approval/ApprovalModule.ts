@@ -113,7 +113,7 @@ export class ApprovalModule extends BaseModule {
       case 'escalate':
         return this.escalateApproval(request.requestId, parameters.approvalId, parameters.reason);
       case 'timeout-check':
-        return this.checkTimeouts();
+        return this.checkTimeouts(request.requestId);
       default:
         throw new Error(`Unsupported approval action: ${action}`);
     }
@@ -173,11 +173,11 @@ export class ApprovalModule extends BaseModule {
         expiresAt: approvalRequest.expiresAt,
         notifications
       },
+      `Approval request created for ${platformAction.action} operation`,
       {
         module: 'approval',
         action: 'request-approval'
-      },
-      `Approval request created for ${platformAction.action} operation`
+      }
     );
   }
 
@@ -302,7 +302,7 @@ export class ApprovalModule extends BaseModule {
     );
   }
 
-  async rejectRequest(approvalId: string, approverId: string, reason?: string): Promise<ModuleResponse> {
+  async rejectRequest(requestId: string, approvalId: string, approverId: string, reason?: string): Promise<ModuleResponse> {
     const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
@@ -337,25 +337,32 @@ export class ApprovalModule extends BaseModule {
       reason
     });
 
-    return {
-      success: true,
-      message: `Request rejected by ${approverId}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         approvalId,
         status: 'rejected',
         rejectedBy: approverId,
         reason,
         rejectedAt: approval.rejectedAt
       },
-      metadata: {
+      `Request rejected by ${approverId}`,
+      {
         module: 'approval',
         action: 'reject'
+      },
+      {
+        approvalId,
+        status: 'rejected',
+        rejectedBy: approverId,
+        reason,
+        rejectedAt: approval.rejectedAt
       }
-    };
+    );
   }
 
-  async listPendingApprovals(context: RequestContext): Promise<ModuleResponse> {
+  async listPendingApprovals(requestId: string, context: RequestContext): Promise<ModuleResponse> {
     const allPendingApprovals = await this.storage.getPendingApprovals();
     
     const pendingApprovals = allPendingApprovals.map(approval => ({
@@ -372,22 +379,26 @@ export class ApprovalModule extends BaseModule {
       justification: approval.justification
     }));
 
-    return {
-      success: true,
-      message: `Found ${pendingApprovals.length} pending approvals`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         pendingApprovals,
         total: pendingApprovals.length
       },
-      metadata: {
+      `Found ${pendingApprovals.length} pending approvals`,
+      {
         module: 'approval',
         action: 'list-pending'
+      },
+      {
+        pendingApprovals,
+        total: pendingApprovals.length
       }
-    };
+    );
   }
 
-  async escalateApproval(approvalId: string, reason?: string): Promise<ModuleResponse> {
+  async escalateApproval(requestId: string, approvalId: string, reason?: string): Promise<ModuleResponse> {
     const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
@@ -410,24 +421,30 @@ export class ApprovalModule extends BaseModule {
       reason
     });
 
-    return {
-      success: true,
-      message: `Approval escalated to ${escalationApprovers.join(', ')}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         approvalId,
         escalatedTo: escalationApprovers,
         reason,
         totalApprovers: approval.requirements.approvers.length
       },
-      metadata: {
+      `Approval escalated to ${escalationApprovers.join(', ')}`,
+      {
         module: 'approval',
         action: 'escalate'
+      },
+      {
+        approvalId,
+        escalatedTo: escalationApprovers,
+        reason,
+        totalApprovers: approval.requirements.approvers.length
       }
-    };
+    );
   }
 
-  async checkTimeouts(): Promise<ModuleResponse> {
+  async checkTimeouts(requestId: string): Promise<ModuleResponse> {
     // Use storage's built-in expired approval processing
     const expiredIds = await this.storage.processExpiredApprovals();
     
@@ -440,19 +457,23 @@ export class ApprovalModule extends BaseModule {
       }
     }
 
-    return {
-      success: true,
-      message: `Processed ${expiredIds.length} expired approvals`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         expiredCount: expiredIds.length,
         expiredIds
       },
-      metadata: {
+      `Processed ${expiredIds.length} expired approvals`,
+      {
         module: 'approval',
         action: 'timeout-check'
+      },
+      {
+        expiredCount: expiredIds.length,
+        expiredIds
       }
-    };
+    );
   }
 
   // Helper methods

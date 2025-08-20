@@ -90,4 +90,34 @@ export abstract class BaseModule {
       warnings: [],
     };
   }
+
+  /**
+   * Create custom response with all fields
+   */
+  protected createCustomResponse(
+    requestId: string,
+    success: boolean,
+    result: any,
+    message: string,
+    metadata: Record<string, any> = {},
+    data?: any,
+    detailedResponse?: string,
+    nextActions: any[] = [],
+    errors: string[] = [],
+    warnings: string[] = []
+  ): ModuleResponse {
+    return {
+      requestId,
+      success,
+      result,
+      metadata,
+      nextActions,
+      errors,
+      warnings,
+      message,
+      detailedResponse,
+      timestamp: new Date().toISOString(),
+      data
+    };
+  }
 }

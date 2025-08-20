@@ -332,8 +332,10 @@ export class ApprovalStorage {
       context: {
         userId: item.userId,
         sessionId: item.sessionId,
+        originalRequest: item.originalRequest || '',
         environment: item.contextEnvironment,
-        permissions: item.contextPermissions || []
+        permissions: item.contextPermissions || [],
+        auditTrail: []
       },
       riskLevel: item.riskLevel,
       justification: item.justification,

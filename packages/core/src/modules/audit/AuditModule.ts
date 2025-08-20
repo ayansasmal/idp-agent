@@ -73,17 +73,15 @@ export class AuditModule extends BaseModule {
         duration
       });
 
-      return {
-        success: false,
-        message: `Audit operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date().toISOString(),
-        data: null,
-        metadata: {
+      return this.createErrorResponse(
+        request.requestId,
+        `Audit operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        {
           module: 'audit',
           action: request.action,
           error: error instanceof Error ? error.message : 'Unknown error'
         }
-      };
+      );
     }
   }
 
@@ -92,13 +90,13 @@ export class AuditModule extends BaseModule {
 
     switch (action) {
       case 'log-event':
-        return this.logAuditEvent(parameters, request.context);
+        return this.logAuditEvent(request.requestId, parameters, request.context);
       case 'query-audit-trail':
-        return this.queryAuditTrail(parameters);
+        return this.queryAuditTrail(request.requestId, parameters);
       case 'generate-report':
-        return this.generateReport(parameters);
+        return this.generateReport(request.requestId, parameters);
       case 'get-metrics':
-        return this.getMetrics(parameters);
+        return this.getMetrics(request.requestId, parameters);
       case 'compliance-report':
         return this.generateComplianceReport(parameters, request.context);
       case 'export-logs':
@@ -110,7 +108,7 @@ export class AuditModule extends BaseModule {
     }
   }
 
-  async logAuditEvent(params: any, context: RequestContext): Promise<ModuleResponse> {
+  async logAuditEvent(requestId: string, params: any, context: RequestContext): Promise<ModuleResponse> {
     const {
       eventType,
       resource,
@@ -157,23 +155,28 @@ export class AuditModule extends BaseModule {
       resource
     });
 
-    return {
-      success: true,
-      message: `Audit event recorded: ${eventType}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         eventId: auditEvent.id,
         eventType,
         timestamp: auditEvent.timestamp
       },
-      metadata: {
+      `Audit event recorded: ${eventType}`,
+      {
         module: 'audit',
         action: 'log-event'
+      },
+      {
+        eventId: auditEvent.id,
+        eventType,
+        timestamp: auditEvent.timestamp
       }
-    };
+    );
   }
 
-  async queryAuditTrail(params: any): Promise<ModuleResponse> {
+  async queryAuditTrail(requestId: string, params: any): Promise<ModuleResponse> {
     const {
       userId,
       startDate,
@@ -232,7 +235,7 @@ export class AuditModule extends BaseModule {
     };
   }
 
-  async generateReport(params: any): Promise<ModuleResponse> {
+  async generateReport(requestId: string, params: any): Promise<ModuleResponse> {
     const {
       reportType = 'activity',
       startDate,
@@ -284,7 +287,7 @@ export class AuditModule extends BaseModule {
     };
   }
 
-  async getMetrics(params: any): Promise<ModuleResponse> {
+  async getMetrics(requestId: string, params: any): Promise<ModuleResponse> {
     const {
       metricType = 'all',
       startDate,
