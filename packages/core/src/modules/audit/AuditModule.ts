@@ -98,11 +98,11 @@ export class AuditModule extends BaseModule {
       case 'get-metrics':
         return this.getMetrics(request.requestId, parameters);
       case 'compliance-report':
-        return this.generateComplianceReport(parameters, request.context);
+        return this.generateComplianceReport(request.requestId, parameters, request.context);
       case 'export-logs':
-        return this.exportLogs(parameters);
+        return this.exportLogs(request.requestId, parameters);
       case 'search-events':
-        return this.searchEvents(parameters);
+        return this.searchEvents(request.requestId, parameters);
       default:
         throw new Error(`Unsupported audit action: ${action}`);
     }
@@ -214,11 +214,10 @@ export class AuditModule extends BaseModule {
     const totalCount = filteredEvents.length;
     const paginatedEvents = filteredEvents.slice(offset, offset + limit);
 
-    return {
-      success: true,
-      message: `Retrieved ${paginatedEvents.length} audit events`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         events: paginatedEvents,
         pagination: {
           total: totalCount,
@@ -228,11 +227,22 @@ export class AuditModule extends BaseModule {
         },
         summary: this.generateEventSummary(filteredEvents)
       },
-      metadata: {
+      `Retrieved ${paginatedEvents.length} audit events`,
+      {
         module: 'audit',
         action: 'query-audit-trail'
+      },
+      {
+        events: paginatedEvents,
+        pagination: {
+          total: totalCount,
+          limit,
+          offset,
+          hasMore: offset + limit < totalCount
+        },
+        summary: this.generateEventSummary(filteredEvents)
       }
-    };
+    );
   }
 
   async generateReport(requestId: string, params: any): Promise<ModuleResponse> {
@@ -269,22 +279,29 @@ export class AuditModule extends BaseModule {
       ? this.formatReportAsCSV(report)
       : report;
 
-    return {
-      success: true,
-      message: `${reportType} report generated`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         reportId,
         reportType,
         format,
         generatedAt: new Date().toISOString(),
         report: formattedReport
       },
-      metadata: {
+      `${reportType} report generated`,
+      {
         module: 'audit',
         action: 'generate-report'
+      },
+      {
+        reportId,
+        reportType,
+        format,
+        generatedAt: new Date().toISOString(),
+        report: formattedReport
       }
-    };
+    );
   }
 
   async getMetrics(requestId: string, params: any): Promise<ModuleResponse> {
@@ -297,23 +314,28 @@ export class AuditModule extends BaseModule {
 
     const metrics = await this.metrics.getMetrics(metricType, startDate, endDate, granularity);
 
-    return {
-      success: true,
-      message: `Retrieved ${metricType} metrics`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         metrics,
         period: { startDate, endDate },
         granularity
       },
-      metadata: {
+      `Retrieved ${metricType} metrics`,
+      {
         module: 'audit',
         action: 'get-metrics'
+      },
+      {
+        metrics,
+        period: { startDate, endDate },
+        granularity
       }
-    };
+    );
   }
 
-  async generateComplianceReport(params: any, context: RequestContext): Promise<ModuleResponse> {
+  async generateComplianceReport(requestId: string, params: any, context: RequestContext): Promise<ModuleResponse> {
     const {
       framework = 'SOC2',
       startDate,
@@ -339,22 +361,26 @@ export class AuditModule extends BaseModule {
 
     this.complianceReports.set(reportId, report);
 
-    return {
-      success: true,
-      message: `${framework} compliance report generated`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         reportId,
         report
       },
-      metadata: {
+      `${framework} compliance report generated`,
+      {
         module: 'audit',
         action: 'compliance-report'
+      },
+      {
+        reportId,
+        report
       }
-    };
+    );
   }
 
-  async exportLogs(params: any): Promise<ModuleResponse> {
+  async exportLogs(requestId: string, params: any): Promise<ModuleResponse> {
     const {
       format = 'json',
       startDate,
@@ -388,11 +414,10 @@ export class AuditModule extends BaseModule {
 
     const exportId = `export-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    return {
-      success: true,
-      message: `Logs exported in ${format} format`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         exportId,
         format,
         recordCount: events.length,
@@ -401,14 +426,24 @@ export class AuditModule extends BaseModule {
         data: destination === 'download' ? exportData : null,
         downloadUrl: destination === 'url' ? `/api/exports/${exportId}` : null
       },
-      metadata: {
+      `Logs exported in ${format} format`,
+      {
         module: 'audit',
         action: 'export-logs'
+      },
+      {
+        exportId,
+        format,
+        recordCount: events.length,
+        size: exportData.length,
+        mimeType,
+        data: destination === 'download' ? exportData : null,
+        downloadUrl: destination === 'url' ? `/api/exports/${exportId}` : null
       }
-    };
+    );
   }
 
-  async searchEvents(params: any): Promise<ModuleResponse> {
+  async searchEvents(requestId: string, params: any): Promise<ModuleResponse> {
     const {
       query,
       fields = ['action', 'resource', 'details'],
@@ -437,21 +472,27 @@ export class AuditModule extends BaseModule {
 
     const limitedResults = scoredResults.slice(0, limit).map(r => r.event);
 
-    return {
-      success: true,
-      message: `Found ${limitedResults.length} matching events`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         query,
         results: limitedResults,
         totalFound: searchResults.length,
         searchFields: fields
       },
-      metadata: {
+      `Found ${limitedResults.length} matching events`,
+      {
         module: 'audit',
         action: 'search-events'
+      },
+      {
+        query,
+        results: limitedResults,
+        totalFound: searchResults.length,
+        searchFields: fields
       }
-    };
+    );
   }
 
   // Helper methods

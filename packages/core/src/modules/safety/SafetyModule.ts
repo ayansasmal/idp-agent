@@ -83,23 +83,23 @@ export class SafetyModule extends BaseModule {
 
     switch (action) {
       case 'validate':
-        return this.validateAction(parameters.platformAction, request.context);
+        return this.validateAction(request.requestId, parameters.platformAction, request.context);
       case 'assess-risk':
-        return this.assessRisk(parameters.platformAction, request.context);
+        return this.assessRisk(request.requestId, parameters.platformAction, request.context);
       case 'check-policies':
-        return this.checkPolicies(parameters.platformAction, request.context);
+        return this.checkPolicies(request.requestId, parameters.platformAction, request.context);
       case 'reality-check':
-        return this.performRealityCheck(parameters.platformAction, request.context);
+        return this.performRealityCheck(request.requestId, parameters.platformAction, request.context);
       case 'compliance-check':
-        return this.checkCompliance(parameters.platformAction, request.context);
+        return this.checkCompliance(request.requestId, parameters.platformAction, request.context);
       case 'generate-rollback-plan':
-        return this.generateRollbackPlan(parameters.platformAction, request.context);
+        return this.generateRollbackPlan(request.requestId, parameters.platformAction, request.context);
       default:
         throw new Error(`Unsupported safety action: ${action}`);
     }
   }
 
-  async validateAction(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
+  async validateAction(requestId: string, action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
     this.logger.info('Validating platform action', { action: action.action, resource: action.resourceName });
 
     const validationResults: ValidationResult[] = [];
@@ -124,26 +124,32 @@ export class SafetyModule extends BaseModule {
     const errors = validationResults.filter(r => !r.valid).map(r => r.message);
     const warnings = validationResults.filter(r => r.warnings?.length).flatMap(r => r.warnings || []);
 
-    return {
-      success: allValid,
-      message: allValid
-        ? 'Action validation passed'
-        : `Action validation failed: ${errors.join(', ')}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      allValid,
+      {
         valid: allValid,
         results: validationResults,
         errors,
         warnings
       },
-      metadata: {
+      allValid
+        ? 'Action validation passed'
+        : `Action validation failed: ${errors.join(', ')}`,
+      {
         module: 'safety',
         action: 'validate'
+      },
+      {
+        valid: allValid,
+        results: validationResults,
+        errors,
+        warnings
       }
-    };
+    );
   }
 
-  async assessRisk(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
+  async assessRisk(requestId: string, action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
     this.logger.info('Assessing risk for platform action', {
       action: action.action,
       resource: action.resourceName,
@@ -180,25 +186,32 @@ export class SafetyModule extends BaseModule {
     const overallRisk = this.calculateOverallRisk(riskFactors);
     const requiresApproval = this.requiresApproval(overallRisk, action, context);
 
-    return {
-      success: true,
-      message: `Risk assessment completed: ${overallRisk} risk`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         riskLevel: overallRisk,
         riskFactors,
         requiresApproval,
         riskScore: this.calculateRiskScore(riskFactors),
         mitigations: this.suggestMitigations(riskFactors)
       },
-      metadata: {
+      `Risk assessment completed: ${overallRisk} risk`,
+      {
         module: 'safety',
         action: 'assess-risk'
+      },
+      {
+        riskLevel: overallRisk,
+        riskFactors,
+        requiresApproval,
+        riskScore: this.calculateRiskScore(riskFactors),
+        mitigations: this.suggestMitigations(riskFactors)
       }
-    };
+    );
   }
 
-  async checkPolicies(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
+  async checkPolicies(requestId: string, action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
     this.logger.info('Checking policies for platform action', {
       action: action.action,
       policyCount: this.policies.length
@@ -217,13 +230,10 @@ export class SafetyModule extends BaseModule {
 
     const hasViolations = violations.length > 0;
 
-    return {
-      success: !hasViolations,
-      message: hasViolations
-        ? `Policy violations found: ${violations.map(v => v.policy.name).join(', ')}`
-        : 'All policy checks passed',
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      !hasViolations,
+      {
         results: policyResults,
         violations,
         warnings,
@@ -235,14 +245,29 @@ export class SafetyModule extends BaseModule {
           passed: passed.length
         }
       },
-      metadata: {
+      hasViolations
+        ? `Policy violations found: ${violations.map(v => v.policy.name).join(', ')}`
+        : 'All policy checks passed',
+      {
         module: 'safety',
         action: 'check-policies'
+      },
+      {
+        results: policyResults,
+        violations,
+        warnings,
+        passed,
+        summary: {
+          total: policyResults.length,
+          violations: violations.length,
+          warnings: warnings.length,
+          passed: passed.length
+        }
       }
-    };
+    );
   }
 
-  async performRealityCheck(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
+  async performRealityCheck(requestId: string, action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
     this.logger.info('Performing reality check', {
       action: action.action,
       resource: action.resourceName
@@ -270,13 +295,10 @@ export class SafetyModule extends BaseModule {
     const blockers = checks.filter(c => c.status === 'fail');
     const concerns = checks.filter(c => c.status === 'warning');
 
-    return {
-      success: allPassed && blockers.length === 0,
-      message: blockers.length > 0
-        ? `Reality check failed: ${blockers.map(b => b.name).join(', ')}`
-        : 'Reality check passed',
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      allPassed && blockers.length === 0,
+      {
         checks,
         blockers,
         concerns,
@@ -287,14 +309,28 @@ export class SafetyModule extends BaseModule {
           failed: blockers.length
         }
       },
-      metadata: {
+      blockers.length > 0
+        ? `Reality check failed: ${blockers.map(b => b.name).join(', ')}`
+        : 'Reality check passed',
+      {
         module: 'safety',
         action: 'reality-check'
+      },
+      {
+        checks,
+        blockers,
+        concerns,
+        summary: {
+          total: checks.length,
+          passed: checks.filter(c => c.status === 'pass').length,
+          warnings: concerns.length,
+          failed: blockers.length
+        }
       }
-    };
+    );
   }
 
-  async checkCompliance(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
+  async checkCompliance(requestId: string, action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
     this.logger.info('Checking compliance requirements', { action: action.action });
 
     const complianceChecks: ComplianceCheck[] = [
@@ -307,37 +343,42 @@ export class SafetyModule extends BaseModule {
     const violations = complianceChecks.filter(c => !c.compliant);
     const isCompliant = violations.length === 0;
 
-    return {
-      success: isCompliant,
-      message: isCompliant
-        ? 'All compliance checks passed'
-        : `Compliance violations: ${violations.map(v => v.requirement).join(', ')}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      isCompliant,
+      {
         compliant: isCompliant,
         checks: complianceChecks,
         violations,
         requirements: complianceChecks.map(c => c.requirement)
       },
-      metadata: {
+      isCompliant
+        ? 'All compliance checks passed'
+        : `Compliance violations: ${violations.map(v => v.requirement).join(', ')}`,
+      {
         module: 'safety',
         action: 'compliance-check'
+      },
+      {
+        compliant: isCompliant,
+        checks: complianceChecks,
+        violations,
+        requirements: complianceChecks.map(c => c.requirement)
       }
-    };
+    );
   }
 
-  async generateRollbackPlan(action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
+  async generateRollbackPlan(requestId: string, action: PlatformAction, context: RequestContext): Promise<ModuleResponse> {
     this.logger.info('Generating rollback plan', { action: action.action });
 
     const rollbackSteps = this.createRollbackSteps(action);
     const estimatedTime = this.estimateRollbackTime(action);
     const dependencies = this.identifyRollbackDependencies(action);
 
-    return {
-      success: true,
-      message: `Rollback plan generated for ${action.action} operation`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createCustomResponse(
+      requestId,
+      true,
+      {
         rollbackPlan: {
           steps: rollbackSteps,
           estimatedTime,
@@ -347,11 +388,22 @@ export class SafetyModule extends BaseModule {
           validation: this.createRollbackValidation(action)
         }
       },
-      metadata: {
+      `Rollback plan generated for ${action.action} operation`,
+      {
         module: 'safety',
         action: 'generate-rollback-plan'
+      },
+      {
+        rollbackPlan: {
+          steps: rollbackSteps,
+          estimatedTime,
+          dependencies,
+          automated: this.canAutomate(action),
+          riskLevel: this.assessRollbackRisk(action),
+          validation: this.createRollbackValidation(action)
+        }
       }
-    };
+    );
   }
 
   // Helper methods for validation
