@@ -212,11 +212,9 @@ export class ApprovalModule extends BaseModule {
       this.logger.info('Approval requirements met', { approvalId });
     }
 
-    return {
-      success: true,
-      message: `Approval status: ${approval.status}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createSuccessResponse(
+      requestId,
+      {
         approvalId,
         status: approval.status,
         approvals: approval.approvals,
@@ -225,14 +223,15 @@ export class ApprovalModule extends BaseModule {
         approvedAt: approval.approvedAt,
         progress: this.calculateApprovalProgress(approval)
       },
-      metadata: {
+      `Approval status: ${approval.status}`,
+      {
         module: 'approval',
         action: 'check-approval'
       }
-    };
+    );
   }
 
-  async approveRequest(approvalId: string, approverId: string, comments?: string): Promise<ModuleResponse> {
+  async approveRequest(requestId: string, approvalId: string, approverId: string, comments?: string): Promise<ModuleResponse> {
     const approval = await this.storage.getApproval(approvalId);
 
     if (!approval) {
@@ -283,13 +282,9 @@ export class ApprovalModule extends BaseModule {
       totalApprovals: approval.approvals.length
     });
 
-    return {
-      success: true,
-      message: isFullyApproved
-        ? 'Request fully approved and ready for execution'
-        : `Approval received from ${approverId}`,
-      timestamp: new Date().toISOString(),
-      data: {
+    return this.createSuccessResponse(
+      requestId,
+      {
         approvalId,
         status: approval.status,
         approverId,
@@ -297,11 +292,14 @@ export class ApprovalModule extends BaseModule {
         requiredApprovals: approval.requirements.requiredCount,
         isFullyApproved
       },
-      metadata: {
+      isFullyApproved
+        ? 'Request fully approved and ready for execution'
+        : `Approval received from ${approverId}`,
+      {
         module: 'approval',
         action: 'approve'
       }
-    };
+    );
   }
 
   async rejectRequest(approvalId: string, approverId: string, reason?: string): Promise<ModuleResponse> {

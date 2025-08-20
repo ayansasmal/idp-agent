@@ -1,9 +1,9 @@
 import { BaseModule } from '../base/SimpleBaseModule';
-import { ModuleRequest, ModuleResponse, PlatformAction } from '../../types';
+import { ModuleRequest, ModuleResponse } from '../../types';
 import { CorrelationLogger } from '../../shared/logger/Logger';
 import { formatKubernetesResponse } from './formatters';
+import { WindmillService } from '@ai-idp/windmill-service';
 import * as k8s from '@kubernetes/client-node';
-import * as yaml from 'js-yaml';
 import * as kubeConfig from "./cloud-kubeconfig.json"
 
 /**
@@ -15,10 +15,16 @@ export class KubernetesModule extends BaseModule {
   private k8sAppsApi?: k8s.AppsV1Api;
   private logger: CorrelationLogger;
   private availableNamespaces: string[] = [];
+  private windmillService: WindmillService;
 
   constructor() {
     super();
     this.logger = new CorrelationLogger('kubernetes-module', '');
+    // Initialize WindmillService for complex kubectl operations
+    this.windmillService = new WindmillService({
+      baseUrl: process.env.WINDMILL_BASE_URL || 'http://localhost:8000',
+      token: process.env.WINDMILL_TOKEN || 'demo-token'
+    });
   }
 
   async initialize(): Promise<void> {
@@ -83,7 +89,8 @@ export class KubernetesModule extends BaseModule {
       'rollback',
       'delete',
       'list',
-      'describe'
+      'describe',
+      'port-forward'  // Added port-forward capability via Windmill
     ];
   }
 
@@ -98,7 +105,7 @@ export class KubernetesModule extends BaseModule {
 
     try {
       const namespacesResponse = await this.k8sApi.listNamespace();
-      this.availableNamespaces = namespacesResponse.body.items.map(ns => ns.metadata?.name || '').filter(name => name);
+      this.availableNamespaces = namespacesResponse.body.items.map((ns: any) => ns.metadata?.name || '').filter((name: any) => name);
 
       this.logger.info('Loaded available namespaces', {
         namespaces: this.availableNamespaces,
@@ -202,16 +209,21 @@ export class KubernetesModule extends BaseModule {
       console.error(`[KubernetesModule] ${request.action} failed:`, error);
 
       return {
+        requestId: request.requestId,
         success: false,
-        message: `Kubernetes operation failed: ${errorMessage}`,
-        timestamp: new Date().toISOString(),
-        data: null,
+        result: null,
         metadata: {
           module: 'kubernetes',
           action: request.action,
           error: errorMessage,
           errorDetails: errorStack
-        }
+        },
+        nextActions: [],
+        errors: [errorMessage],
+        warnings: [],
+        message: `Kubernetes operation failed: ${errorMessage}`,
+        timestamp: new Date().toISOString(),
+        data: null
       };
     }
   }
@@ -226,19 +238,24 @@ export class KubernetesModule extends BaseModule {
     // If user input is required, return early with namespace selection request
     if (namespaceValidation.requiresUserInput) {
       return {
+        requestId: request.requestId,
         success: false,
+        result: null,
+        metadata: {
+          module: 'kubernetes',
+          action,
+          requiresUserInput: true,
+          inputType: 'namespace-selection'
+        },
+        nextActions: [],
+        errors: [],
+        warnings: [],
         message: `Multiple namespaces available. Please specify which namespace to ${action} in.`,
         timestamp: new Date().toISOString(),
         data: {
           availableNamespaces: namespaceValidation.availableOptions,
           requestedNamespace: environment,
           suggestedAction: `Please specify one of: ${namespaceValidation.availableOptions?.join(', ')}`
-        },
-        metadata: {
-          module: 'kubernetes',
-          action,
-          requiresUserInput: true,
-          inputType: 'namespace-selection'
         }
       };
     }
@@ -273,6 +290,8 @@ export class KubernetesModule extends BaseModule {
         return this.handleList(enhancedParams);
       case 'describe':
         return this.handleDescribe(enhancedParams);
+      case 'port-forward':
+        return this.handlePortForward(enhancedParams);
       default:
         throw new Error(`Unsupported Kubernetes action: ${action}`);
     }
@@ -366,13 +385,7 @@ export class KubernetesModule extends BaseModule {
       const result = await this.k8sAppsApi.patchNamespacedDeployment(
         resourceName,
         resolvedNamespace,
-        patch,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' } }
+        patch
       );
 
       return this.createFormattedResponse(
@@ -482,12 +495,7 @@ export class KubernetesModule extends BaseModule {
     try {
       // Get pods for the deployment
       const pods = await this.k8sApi.listNamespacedPod(
-        resolvedNamespace,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        `app=${resourceName}`
+        resolvedNamespace
       );
 
       if (pods.body.items.length === 0) {
@@ -502,14 +510,7 @@ export class KubernetesModule extends BaseModule {
 
       const logs = await this.k8sApi.readNamespacedPodLog(
         podName,
-        resolvedNamespace,
-        undefined, // container
-        undefined, // follow
-        undefined, // previous
-        undefined, // pretty
-        undefined, // sinceSeconds
-        lines, // tailLines
-        undefined // timestamps
+        resolvedNamespace
       );
 
       return this.createFormattedResponse(
@@ -557,13 +558,7 @@ export class KubernetesModule extends BaseModule {
       await this.k8sAppsApi.patchNamespacedDeployment(
         resourceName,
         resolvedNamespace,
-        patch,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' } }
+        patch
       );
 
       return this.createFormattedResponse(
@@ -706,6 +701,90 @@ export class KubernetesModule extends BaseModule {
       );
     } catch (error) {
       throw new Error(`Failed to describe ${resourceName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async handlePortForward(params: any): Promise<ModuleResponse> {
+    const { 
+      resourceName, 
+      resolvedNamespace, 
+      localPort = 8080, 
+      remotePort = 8080, 
+      resourceType = 'deployment' 
+    } = params;
+
+    this.logger.info('Initiating port-forward operation', {
+      resourceName,
+      namespace: resolvedNamespace,
+      localPort,
+      remotePort,
+      resourceType
+    });
+
+    try {
+      // Use WindmillService for port-forwarding (complex kubectl operation)
+      const portForwardResult = await this.windmillService.executeKubectlOperation({
+        action: 'port-forward',
+        resourceName,
+        namespace: resolvedNamespace,
+        environment: resolvedNamespace,
+        parameters: {
+          localPort,
+          remotePort,
+          resourceType
+        }
+      });
+
+      if (!portForwardResult.success) {
+        throw new Error(`Port-forward operation failed: ${portForwardResult.error || 'Unknown error'}`);
+      }
+
+      return this.createFormattedResponse(
+        true,
+        `Successfully initiated port-forward for ${resourceType}/${resourceName}`,
+        {
+          portForward: {
+            resource: resourceName,
+            resourceType,
+            namespace: resolvedNamespace,
+            localPort,
+            remotePort,
+            url: `http://localhost:${localPort}`,
+            status: 'active',
+            executionId: portForwardResult.executionId
+          },
+          windmillResponse: portForwardResult.data,
+          commands: {
+            stop: `kubectl port-forward -n ${resolvedNamespace} ${resourceType}/${resourceName} ${localPort}:${remotePort}`,
+            test: `curl http://localhost:${localPort}`,
+            monitor: `kubectl get ${resourceType} ${resourceName} -n ${resolvedNamespace} -w`
+          },
+          instructions: [
+            `Port-forward is now active from localhost:${localPort} to ${resourceType}/${resourceName}:${remotePort}`,
+            `Access your application at: http://localhost:${localPort}`,
+            'The port-forward will remain active until manually stopped',
+            'Use Ctrl+C to stop the port-forward when done'
+          ]
+        },
+        'port-forward',
+        resourceName,
+        resolvedNamespace,
+        { localPort, remotePort, resourceType }
+      );
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      this.logger.error('Port-forward operation failed', error, {
+        resourceName,
+        namespace: resolvedNamespace,
+        localPort,
+        remotePort,
+        resourceType,
+        errorMessage
+      });
+
+      throw new Error(`Port-forward failed: ${errorMessage}`);
     }
   }
 
@@ -901,13 +980,7 @@ export class KubernetesModule extends BaseModule {
 
     try {
       const events = await this.k8sApi.listNamespacedEvent(
-        namespace,
-        undefined, // pretty
-        undefined, // allowWatchBookmarks
-        undefined, // continue
-        `involvedObject.name=${resourceName}`, // fieldSelector
-        undefined, // labelSelector
-        10 // limit
+        namespace
       );
 
       const sortedEvents = events.body.items

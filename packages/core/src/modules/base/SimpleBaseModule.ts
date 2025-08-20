@@ -38,4 +38,56 @@ export abstract class BaseModule {
       message: 'Module operational'
     };
   }
+
+  /**
+   * Create successful response
+   */
+  protected createSuccessResponse(
+    requestId: string,
+    result: any,
+    message?: string,
+    metadata: Record<string, any> = {}
+  ): ModuleResponse {
+    const timestamp = new Date().toISOString();
+    return {
+      requestId,
+      success: true,
+      result,
+      message: message || `Operation completed successfully`,
+      timestamp,
+      metadata: {
+        timestamp,
+        ...metadata,
+      },
+      nextActions: [],
+      errors: [],
+      warnings: [],
+    };
+  }
+
+  /**
+   * Create error response
+   */
+  protected createErrorResponse(
+    requestId: string,
+    errors: string | string[],
+    metadata: Record<string, any> = {}
+  ): ModuleResponse {
+    const timestamp = new Date().toISOString();
+    const errorArray = Array.isArray(errors) ? errors : [errors];
+    return {
+      requestId,
+      success: false,
+      result: null,
+      message: `Operation failed: ${errorArray.join('; ')}`,
+      timestamp,
+      metadata: {
+        timestamp,
+        ...metadata,
+      },
+      nextActions: [],
+      errors: errorArray,
+      warnings: [],
+    };
+  }
 }

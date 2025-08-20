@@ -107,15 +107,19 @@ export abstract class BaseModule {
   protected createSuccessResponse(
     requestId: string,
     result: any,
+    message?: string,
     metadata: Record<string, any> = {}
   ): ModuleResponse {
+    const timestamp = new Date().toISOString();
     return {
       requestId,
       success: true,
       result,
+      message: message || `Operation completed successfully`,
+      timestamp,
       metadata: {
         module: this.config.name,
-        timestamp: new Date().toISOString(),
+        timestamp,
         ...metadata,
       },
       nextActions: [],
@@ -129,20 +133,24 @@ export abstract class BaseModule {
    */
   protected createErrorResponse(
     requestId: string,
-    errors: string[],
+    errors: string | string[],
     metadata: Record<string, any> = {}
   ): ModuleResponse {
+    const timestamp = new Date().toISOString();
+    const errorArray = Array.isArray(errors) ? errors : [errors];
     return {
       requestId,
       success: false,
       result: null,
+      message: `Operation failed: ${errorArray.join('; ')}`,
+      timestamp,
       metadata: {
         module: this.config.name,
-        timestamp: new Date().toISOString(),
+        timestamp,
         ...metadata,
       },
       nextActions: [],
-      errors,
+      errors: errorArray,
       warnings: [],
     };
   }
@@ -203,7 +211,7 @@ export abstract class BaseModule {
   ): Promise<ModuleResponse> {
     try {
       const result = await operation();
-      return this.createSuccessResponse(requestId, result, {
+      return this.createSuccessResponse(requestId, result, `${operationName} completed successfully`, {
         operation: operationName,
       });
     } catch (error) {
@@ -211,14 +219,14 @@ export abstract class BaseModule {
       
       // If it's a ModuleError, preserve the error details
       if (error instanceof ModuleError) {
-        return this.createErrorResponse(requestId, [errorMessage], {
+        return this.createErrorResponse(requestId, errorMessage, {
           operation: operationName,
           errorCode: error.errorCode,
           errorDetails: error.details,
         });
       }
 
-      return this.createErrorResponse(requestId, [errorMessage], {
+      return this.createErrorResponse(requestId, errorMessage, {
         operation: operationName,
       });
     }

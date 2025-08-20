@@ -113,6 +113,9 @@ export class AICore {
 
       return {
         platformAction: result.platformAction,
+        allActions: result.allActions,
+        isMultiAction: result.isMultiAction || false,
+        executionOrder: result.executionOrder,
         confidence: result.platformAction.confidence,
         requiresValidation: result.requiresValidation,
         requiresApproval: result.requiresApproval,
