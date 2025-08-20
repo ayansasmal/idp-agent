@@ -49,7 +49,8 @@
     "prom-client": "^15.1.3",
     "uuid": "^11.1.0",
     "@aws-sdk/client-dynamodb": "^3.868.0",
-    "@aws-sdk/lib-dynamodb": "^3.868.0"
+    "@aws-sdk/lib-dynamodb": "^3.868.0",
+    "@ai-idp/windmill-service": "file:../windmill-service"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

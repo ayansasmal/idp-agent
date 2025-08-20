@@ -2,7 +2,7 @@ import { BaseModule } from '../base/SimpleBaseModule';
 import { ModuleRequest, ModuleResponse } from '../../types';
 import { CorrelationLogger } from '../../shared/logger/Logger';
 import { formatKubernetesResponse } from './formatters';
-// import { WindmillService } from '@ai-idp/windmill-service';
+import { WindmillService, type WindmillServiceInterface } from '@ai-idp/windmill-service';
 import * as k8s from '@kubernetes/client-node';
 import * as kubeConfig from "./cloud-kubeconfig.json"
 
@@ -15,16 +15,24 @@ export class KubernetesModule extends BaseModule {
   private k8sAppsApi?: k8s.AppsV1Api;
   private logger: CorrelationLogger;
   private availableNamespaces: string[] = [];
-  // private windmillService: WindmillService;
+  private windmillService?: WindmillService;
 
   constructor() {
     super();
     this.logger = new CorrelationLogger('kubernetes-module', '');
-    // Initialize WindmillService for complex kubectl operations
-    // this.windmillService = new WindmillService({
-    //   baseUrl: process.env.WINDMILL_BASE_URL || 'http://localhost:8000',
-    //   token: process.env.WINDMILL_TOKEN || 'demo-token'
-    // });
+    
+    // Initialize WindmillService for complex kubectl operations (optional)
+    try {
+      this.windmillService = new WindmillService({
+        baseUrl: process.env.WINDMILL_BASE_URL || 'http://localhost:8000',
+        token: process.env.WINDMILL_TOKEN,
+        workspace: process.env.WINDMILL_WORKSPACE || 'admins'
+      });
+    } catch (error) {
+      this.logger.warn('WindmillService not available, falling back to basic kubectl operations', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
 
   async initialize(): Promise<void> {
@@ -72,6 +80,19 @@ export class KubernetesModule extends BaseModule {
 
       // Load available namespaces
       await this.loadNamespaces();
+
+      // Initialize WindmillService if available
+      if (this.windmillService) {
+        try {
+          await this.windmillService.initialize();
+          this.logger.info('WindmillService initialized successfully');
+        } catch (error) {
+          this.logger.warn('WindmillService initialization failed, using basic kubectl operations only', {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          this.windmillService = undefined;
+        }
+      }
 
       this.logger.info('Kubernetes module initialized successfully');
     } catch (error) {
@@ -729,25 +750,82 @@ export class KubernetesModule extends BaseModule {
     });
 
     try {
-      // TODO: Re-enable WindmillService for port-forwarding (complex kubectl operation)
-      // const portForwardResult = await this.windmillService.executeKubectlOperation({
-      //   action: 'port-forward',
-      //   resourceName,
-      //   namespace: resolvedNamespace,
-      //   environment: resolvedNamespace,
-      //   parameters: {
-      //     localPort,
-      //     remotePort,
-      //     resourceType
-      //   }
-      // });
+      // Use WindmillService for port-forwarding if available (complex kubectl operation)
+      if (this.windmillService) {
+        try {
+          const portForwardResult = await this.windmillService.executeKubectlOperation({
+            action: 'port-forward',
+            resourceName,
+            namespace: resolvedNamespace,
+            environment: resolvedNamespace as 'development' | 'staging' | 'production',
+            parameters: {
+              localPort,
+              remotePort,
+              resourceType
+            },
+            approvalRequired: false
+          });
 
-      // if (!portForwardResult.success) {
-      //   throw new Error(`Port-forward operation failed: ${portForwardResult.error || 'Unknown error'}`);
-      // }
+          if (!portForwardResult.success) {
+            throw new Error(`Port-forward operation failed: ${portForwardResult.error || 'Unknown error'}`);
+          }
+
+          this.logger.info('Port-forward initiated via WindmillService', { 
+            resourceName, 
+            namespace: resolvedNamespace, 
+            localPort, 
+            remotePort,
+            executionId: portForwardResult.executionId 
+          });
+
+          return this.createFormattedResponse(
+            true,
+            `Successfully initiated port-forward for ${resourceType}/${resourceName} via Windmill`,
+            {
+              portForward: {
+                resource: resourceName,
+                resourceType,
+                namespace: resolvedNamespace,
+                localPort,
+                remotePort,
+                url: `http://localhost:${localPort}`,
+                status: 'active',
+                executionId: portForwardResult.executionId,
+                method: 'windmill'
+              },
+              windmillResponse: portForwardResult,
+              commands: {
+                stop: `Stop via Windmill execution ID: ${portForwardResult.executionId}`,
+                test: `curl http://localhost:${localPort}`,
+                monitor: `kubectl get ${resourceType} ${resourceName} -n ${resolvedNamespace} -w`
+              },
+              instructions: [
+                `Port-forward is now active from localhost:${localPort} to ${resourceType}/${resourceName}:${remotePort}`,
+                `Access your application at: http://localhost:${localPort}`,
+                `Port-forward managed by Windmill (ID: ${portForwardResult.executionId})`,
+                'Use Windmill dashboard to monitor and stop the port-forward'
+              ]
+            },
+            'port-forward',
+            resourceName,
+            resolvedNamespace,
+            { localPort, remotePort, resourceType, windmill: true }
+          );
+        } catch (windmillError) {
+          this.logger.warn('WindmillService port-forward failed, falling back to simulation', {
+            error: windmillError instanceof Error ? windmillError.message : 'Unknown error'
+          });
+          // Fall through to simulation
+        }
+      }
       
-      // Simulate port-forward for now
-      this.logger.info('Port-forward simulated due to WindmillService unavailability', { resourceName, namespace: resolvedNamespace, localPort, remotePort });
+      // Simulate port-forward when WindmillService is not available or failed
+      this.logger.info('Port-forward simulated (WindmillService not available)', { 
+        resourceName, 
+        namespace: resolvedNamespace, 
+        localPort, 
+        remotePort 
+      });
 
       return this.createFormattedResponse(
         true,
