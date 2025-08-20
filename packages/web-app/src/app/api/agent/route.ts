@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OperationRequestSchema } from "@/lib/types";
 import { z } from "zod";
-import { PrimaryAgent, createAgent, RequestContext } from "@ai-idp/core";
+import { PrimaryAgent, createAgent, RequestContext } from "@core/index";
 import { sessionManager, ConversationMessage } from "@/lib/session-manager";
 
 // Global agent instance

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApprovalSchema, type Approval } from "@/lib/types";
-import { PrimaryAgent, createAgent, RequestContext } from "@ai-idp/core";
+import { PrimaryAgent, createAgent, RequestContext } from "@core/index";
 import { z } from "zod";
 
 // Global agent instance
