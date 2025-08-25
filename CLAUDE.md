@@ -14,55 +14,84 @@ This is an **AI-Powered Integrated Developer Platform (IDP)** that uses conversa
 
 ## Architecture Strategy
 
-### Modular Single Agent → Multi-Agent Evolution
+### Meta-Agent + Focused Agents with Shared Intelligence
 
-**Phase 1 (Weeks 1-8): Modular Single Agent**
-- 1 Primary Agent with 4 self-contained modules
-- All modules run in single process with method calls
-- Complete functionality delivered quickly
+**New Architecture Paradigm:**
+- **Meta-Agent**: Intelligent orchestrator that routes tasks to specialized agents
+- **Focused Agents**: Domain-specific agents (Infrastructure, Security, Workflow, Observability)
+- **Shared Context**: Qdrant vector database for cross-agent memory and learning
+- **MCP Communication**: Model Context Protocol for standardized agent-to-agent communication
 
-**Phase 2 (Weeks 9-12): Agent Extraction** 
-- Extract modules to standalone agents with zero code changes
-- Replace method calls with network calls
-- Distributed deployment with same functionality
+**Phase 1 (Weeks 1-8): Foundation Complete**
+- ✅ Modular single agent architecture built
+- ✅ Production web application deployed
+- ✅ Comprehensive approval workflows
+- ✅ Rich response formatting and type safety
 
-**Phase 3 (Weeks 13+): Specialized Agent Ecosystem**
-- Add new specialized agents (Cost, Compliance, DevProd)
-- Advanced features and self-improvement
-- Enterprise capabilities
+**Phase 2 (Weeks 9-12): Multi-Agent Transformation**
+- Transform PrimaryAgent → Meta-Agent orchestrator
+- Extract modules → Focused Agents with MCP servers
+- Integrate Qdrant Cloud for shared context and memory
+- Implement agent routing and intent classification
+
+**Phase 3 (Weeks 13+): Self-Improving Agent Ecosystem**
+- Cross-agent context sharing and learning
+- Proactive recommendations based on historical patterns
+- Advanced multi-agent workflows and collaboration
+- Enterprise-grade scaling and resilience
 
 ### Core Architecture Components
 
-#### 4 Core Modules (Future Agents)
-1. **Kubernetes Module** → Kubernetes Agent
-   - Deploy, scale, status, logs, rollback operations
-   - Kubernetes client wrapper and validation
-   - Manifest generation and monitoring
-   - **Rich Response Formatting**: Generates detailed markdown responses and structured data
-   - **Self-contained UI Logic**: Owns presentation layer for Kubernetes operations
+#### Meta-Agent (Orchestrator)
+- **Intelligent Routing**: Uses AI to classify intents and route to appropriate focused agents
+- **Context Management**: Manages conversation context and shared memory via Qdrant
+- **Response Coordination**: Aggregates and formats responses from multiple focused agents
+- **Decision Making**: Makes high-level decisions about multi-agent workflows
+- **User Interface**: Primary interface for chat, web app, and API endpoints
 
-2. **Safety Module** → Security/Safety Agent
-   - Policy compliance and risk assessment
-   - Reality validation against platform state
-   - Multi-layer safety checks
+#### 4 Focused Agents (Domain Specialists)
+1. **Infrastructure Agent** (formerly Kubernetes Module)
+   - **MCP Server**: Exposes infrastructure operations via Model Context Protocol
+   - **Kubernetes Operations**: Deploy, scale, status, logs, rollback, networking
+   - **Cloud Integration**: Multi-cloud resource management
+   - **Context Sharing**: Stores deployment patterns and infrastructure state in Qdrant
 
-3. **Approval Module** → Workflow Agent
-   - Human-in-the-loop approval workflows
-   - **DynamoDB Persistent Storage**: Approval requests persist across chat sessions
-   - **Risk-Based Execution Halting**: Operations halt when approval required
-   - Slack integration and notifications
-   - Risk-based routing and escalation
+2. **Security Agent** (formerly Safety Module)
+   - **Policy Enforcement**: RBAC, compliance, and security policy validation
+   - **Risk Assessment**: Dynamic risk evaluation with ML-based scoring
+   - **Threat Detection**: Real-time security monitoring and alerting
+   - **Context Learning**: Learns security patterns and adapts policies from Qdrant
 
-4. **Audit Module** → Observability Agent
-   - Comprehensive audit logging
-   - Metrics collection and compliance reporting
-   - Audit trail for all operations
+3. **Workflow Agent** (formerly Approval Module)
+   - **Approval Orchestration**: Human-in-the-loop workflows with intelligent routing
+   - **Process Management**: Complex multi-step workflow execution
+   - **Integration Hub**: Slack, email, webhooks, and notification management
+   - **Decision History**: Stores approval patterns and decision contexts in Qdrant
+
+4. **Observability Agent** (formerly Audit Module)
+   - **Monitoring Integration**: Logs, metrics, traces, and alerting
+   - **Incident Management**: Automated incident response and escalation
+   - **Compliance Reporting**: Audit trails and regulatory compliance
+   - **Intelligence Layer**: Pattern recognition and predictive analytics from Qdrant
+
+#### Shared Intelligence Layer
+- **Qdrant Vector Database**: Cloud-hosted vector database for shared context and memory
+- **Context Embedding**: Conversations, decisions, and execution logs stored as embeddings
+- **Cross-Agent Learning**: Agents learn from each other's experiences and patterns
+- **Pattern Recognition**: AI-powered analysis of historical data for proactive recommendations
+- **Decision Context**: Rich context transfer between agents for intelligent routing
+
+#### Communication Layer
+- **MCP (Model Context Protocol)**: Standardized agent-to-agent communication
+- **Network-Based Agents**: Each focused agent runs as independent MCP server
+- **Async Messaging**: Event-driven communication with message queuing
+- **Load Balancing**: Intelligent request distribution across agent instances
 
 #### AI Core (LLM-Agnostic)
-- **Primary**: Anthropic Claude (configurable)
-- **Fallback**: OpenAI GPT-4 
-- **Easy switching**: Change environment variables only
-- **Structured responses**: Function calling for reliable operations
+- **Meta-Agent LLM**: Anthropic Claude for orchestration and routing decisions
+- **Focused Agent LLMs**: Specialized models per domain (infrastructure, security, etc.)
+- **Fallback Strategy**: OpenAI GPT-4 backup for any LLM failures
+- **Structured Communication**: Function calling and structured outputs for agent coordination
 
 ### Rich Response Architecture
 
@@ -101,49 +130,62 @@ interface ModuleResponse {
 
 ### Core Technologies
 - **Language**: TypeScript + Node.js 20+
-- **Framework**: Fastify (high performance async)
+- **Meta-Agent**: Fastify (high performance orchestration)
+- **Focused Agents**: Independent MCP servers (Node.js/Python)
+- **Vector Database**: Qdrant Cloud (free starter tier)
+- **Communication**: MCP (Model Context Protocol)
 - **Database**: PostgreSQL 16+ with Prisma ORM
-- **Caching**: Redis for sessions and state
+- **Caching**: Redis for sessions and real-time state
 - **AI**: Anthropic Claude API (primary), OpenAI (fallback)
 
 ### Key Dependencies
 ```json
 {
   "ai": "@anthropic-ai/sdk, openai",
+  "agents": "@modelcontextprotocol/sdk, @qdrant/js-client-rest",
   "kubernetes": "@kubernetes/client-node, js-yaml", 
+  "communication": "fastify, @fastify/websocket, socket.io",
+  "vector-db": "@qdrant/js-client-rest, openai (embeddings)",
   "slack": "@slack/bolt",
-  "database": "prisma, postgresql",
+  "database": "prisma, postgresql", 
   "validation": "zod",
   "testing": "vitest",
   "monitoring": "prom-client, pino"
 }
 ```
 
-### Project Structure (Monorepo)
+### Project Structure (Multi-Agent Architecture)
 ```
-ai-idp-modular/
+ai-idp/
 ├── packages/
-│   ├── core/                    # Main agent + modules
+│   ├── meta-agent/              # 🧠 Meta-Agent (Orchestrator)
 │   │   ├── src/
-│   │   │   ├── agent/           # Primary agent coordinator  
+│   │   │   ├── agent/           # Meta-Agent coordinator  
 │   │   │   ├── ai/              # LLM abstraction layer
-│   │   │   ├── modules/         # 4 core modules
-│   │   │   │   ├── kubernetes/  # → Future K8s Agent
-│   │   │   │   ├── safety/      # → Future Security Agent
-│   │   │   │   ├── approval/    # → Future Workflow Agent
-│   │   │   │   └── audit/       # → Future Observability Agent
+│   │   │   ├── routing/         # Intent classification & agent routing
+│   │   │   ├── context/         # Qdrant integration & context management
 │   │   │   └── shared/          # Common utilities
-│   │   └── tests/               # Comprehensive tests
-│   ├── web-app/                 # ✅ Next.js + React + Tailwind
+│   │   └── tests/               # Meta-Agent tests
+│   ├── agents/                  # 🔧 Focused Agents (Domain Specialists)
+│   │   ├── infrastructure/      # Infrastructure Agent (MCP Server)
+│   │   ├── security/            # Security Agent (MCP Server)
+│   │   ├── workflow/            # Workflow Agent (MCP Server)
+│   │   └── observability/       # Observability Agent (MCP Server)
+│   ├── shared/                  # 📚 Shared Libraries
+│   │   ├── mcp-client/          # MCP client SDK
+│   │   ├── qdrant-client/       # Qdrant vector database client
+│   │   ├── types/               # Shared TypeScript definitions
+│   │   └── utils/               # Common utilities
+│   ├── web-app/                 # 🌐 Next.js Web Interface
 │   │   ├── src/app/             # App Router pages & API routes
 │   │   ├── src/components/      # React components (Chat, Approvals)
-│   │   └── src/lib/             # Utilities and types
-│   ├── slack-app/               # Slack integration  
-│   └── cli/                     # Command-line interface
+│   │   └── src/lib/             # Web app utilities
+│   ├── slack-app/               # 💬 Slack Integration
+│   └── cli/                     # 🖥️ Command-line interface
 ├── tools/
-│   ├── agent-extractor/         # Module → Agent conversion
-│   └── deployment/              # Deployment utilities
-└── docs/                        # Documentation
+│   ├── agent-deployment/        # Agent deployment utilities
+│   └── monitoring/              # Multi-agent monitoring tools
+└── docs/                        # 📖 Documentation
 ```
 
 ## Development Commands
@@ -421,40 +463,48 @@ npm run dev:standalone  # Web app with embedded core agent
 
 **Status**: ✅ **Complete** - All dependencies modernized, Windmill service operational, minor type issues remain for final cleanup
 
-### 🎯 Phase 3: Agent Extraction (Future)
-**Goal**: Convert modules to standalone agents without code changes
+### 🎯 Phase 3: Multi-Agent Transformation (Current - Weeks 9-12)
+**Goal**: Transform architecture to Meta-Agent + Focused Agents + Qdrant
 
-**Planned Process:**
-1. Extract Kubernetes module → Kubernetes Agent
-2. Extract Safety module → Security Agent  
-3. Extract Approval module → Workflow Agent
-4. Extract Audit module → Observability Agent
+**Phase 3.1: Meta-Agent Foundation** ⏳ IN PROGRESS
+- ✅ Updated architecture documentation
+- 🔄 Transform PrimaryAgent → Meta-Agent orchestrator  
+- 🔄 Add Qdrant Cloud integration for shared context
+- 🔄 Implement intent classification and agent routing
+- 🔄 Add MCP client capabilities
 
-**Zero-Refactoring Migration:**
-- Copy module code to new agent projects
-- Add network communication layer
-- Update primary agent to use network calls
-- Deploy agents independently
+**Phase 3.2: Infrastructure Agent** 
+- Extract KubernetesModule → Infrastructure Agent MCP server
+- Implement agent-to-agent communication via MCP
+- Test Meta-Agent → Infrastructure Agent flow
+- Maintain rich response formatting and approval workflows
 
-**Benefits:**
-- Independent scaling per agent
-- Isolated failures and updates
-- Specialized optimization per agent
+**Phase 3.3: Remaining Focused Agents**
+- Extract SafetyModule → Security Agent MCP server
+- Extract ApprovalModule → Workflow Agent MCP server  
+- Extract AuditModule → Observability Agent MCP server
+- Implement cross-agent context sharing via Qdrant
 
-### 🚀 Phase 4: Advanced Agent Ecosystem (Future)
-**Goal**: Full multi-agent platform with self-improvement
+**Phase 3.4: Enhanced Multi-Agent Features**
+- Pattern recognition and proactive recommendations
+- Context-aware agent selection and routing
+- Multi-agent workflow orchestration
+- Performance optimization and monitoring
 
-**Planned Agents:**
-- Cost Optimization Agent: Cloud billing analysis and recommendations
-- Compliance Agent: GDPR, SOC2, regulatory compliance automation
-- Developer Productivity Agent: Code suggestions, tooling recommendations  
-- Project Wizard Agent: Automated project scaffolding
-- Incident Simulation Agent: Chaos engineering and resilience testing
+### 🚀 Phase 4: Self-Improving Agent Ecosystem (Weeks 13+)
+**Goal**: Advanced multi-agent intelligence and enterprise features
 
-**Advanced Features:**
-- Self-improving pattern recognition
-- Proactive optimization and alerting
-- Advanced multi-tenancy and enterprise features
+**Advanced Agent Capabilities:**
+- **Predictive Intelligence**: Agents learn patterns from Qdrant history
+- **Proactive Operations**: Automatic recommendations and preventive actions
+- **Cross-Domain Optimization**: Agents collaborate for system-wide improvements
+- **Adaptive Policies**: Security and approval policies evolve based on patterns
+
+**Enterprise Features:**
+- Multi-tenant agent deployment
+- Advanced compliance and audit capabilities
+- Cost optimization with intelligent resource management
+- Developer productivity insights and automation
 
 ## Key Usage Patterns
 

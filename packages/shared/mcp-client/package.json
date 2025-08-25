@@ -1,0 +1,27 @@
+{
+  "name": "@ai-idp/mcp-client",
+  "version": "1.0.0",
+  "description": "Model Context Protocol client for agent communication",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch", 
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-idp/types": "file:../types",
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "zod": "^4.0.17",
+    "pino": "^9.9.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

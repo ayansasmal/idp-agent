@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["./*"],
+      "@ai-idp/types": ["../shared/types/src"],
+      "@ai-idp/qdrant-client": ["../shared/qdrant-client/src"],
+      "@ai-idp/mcp-client": ["../shared/mcp-client/src"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    { "path": "../shared/types" },
+    { "path": "../shared/qdrant-client" }, 
+    { "path": "../shared/mcp-client" }
+  ]
+}
