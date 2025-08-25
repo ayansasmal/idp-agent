@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OperationRequestSchema } from "@/lib/types";
 import { z } from "zod";
-import { PrimaryAgent, createAgent, RequestContext } from "@core/index";
+import { MetaAgent, createMetaAgent } from "@ai-idp/meta-agent";
+import { ConversationContext } from "@ai-idp/types";
 import { sessionManager, ConversationMessage } from "@/lib/session-manager";
 
 // Global agent instance
-let primaryAgent: PrimaryAgent | null = null;
+let metaAgent: MetaAgent | null = null;
 
 // Initialize agent on startup
-async function getAgent(): Promise<PrimaryAgent> {
-  if (!primaryAgent) {
+async function getAgent(): Promise<MetaAgent> {
+  if (!metaAgent) {
     try {
-      primaryAgent = await createAgent();
-      console.log('Primary Agent initialized successfully');
+      metaAgent = createMetaAgent();
+      await metaAgent.initialize();
+      console.log('Meta Agent initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize Primary Agent:', error);
+      console.error('Failed to initialize Meta Agent:', error);
       throw new Error('Agent initialization failed');
     }
   }
-  return primaryAgent;
+  return metaAgent;
 }
 
 export async function POST(req: NextRequest) {
@@ -84,26 +86,27 @@ export async function POST(req: NextRequest) {
     // Create enhanced user input with context
     const enhancedUserInput = contextPrompt ? `${contextPrompt}${userInput}` : userInput;
 
-    // Create request context
-    const requestContext = {
+    // Create conversation context for MetaAgent
+    const conversationContext: ConversationContext = {
+      conversationId: sessionId,
       userId: operationRequest.context.userId,
       sessionId: sessionId,
-      originalRequest: userInput, // Keep original without context
-      environment: operationRequest.context.environment,
-      permissions: operationRequest.context.permissions,
-      auditTrail: [],
-      timestamp: new Date().toISOString(),
-      conversationHistory: await sessionManager.getConversationHistory(sessionId),
-      deployedResources: await sessionManager.getDeployedResources(sessionId),
-      // Add namespace info for debugging
-      ...(specificNamespace && { specificNamespace })
+      history: await sessionManager.getConversationHistory(sessionId),
+      metadata: {
+        environment: operationRequest.context.environment,
+        permissions: operationRequest.context.permissions,
+        deployedResources: await sessionManager.getDeployedResources(sessionId),
+        originalRequest: userInput,
+        timestamp: new Date().toISOString(),
+        ...(specificNamespace && { specificNamespace })
+      }
     };
 
-    // Get the core agent instance
+    // Get the meta agent instance
     const agent = await getAgent();
     
-    // Process the request with the real core agent using enhanced input with context
-    const result = await agent.processRequest(enhancedUserInput, requestContext as RequestContext);
+    // Process the request with MetaAgent using enhanced input with conversation context
+    const result = await agent.processRequest(enhancedUserInput, conversationContext);
     
     // Track deployed resources in session context
     if (result.success && result.data) {
@@ -237,18 +240,19 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   try {
-    console.log('Getting agent for health check...');
+    console.log('Getting Meta Agent for health check...');
     const agent = await getAgent();
-    console.log('Agent obtained, calling getHealthStatus...');
-    const health = await agent.getHealthStatus();
-    console.log('Health status received:', health);
+    console.log('Meta Agent obtained, calling getAgentStatus...');
+    const status = await agent.getAgentStatus();
+    console.log('Agent status received:', status);
     
     return NextResponse.json({
-      status: health.status,
+      status: "healthy",
       timestamp: new Date().toISOString(),
-      agentReady: health.status === "healthy",
-      modules: Object.keys(health.checks || {}),
-      checks: health.checks,
+      agentReady: true,
+      type: "meta-agent",
+      registeredAgents: Object.keys(status),
+      agentStatus: status,
     });
   } catch (error: any) {
     console.error('Health check failed:', error);
@@ -259,7 +263,8 @@ export async function GET() {
         error: error.message,
         timestamp: new Date().toISOString(),
         agentReady: false,
-        modules: [],
+        type: "meta-agent",
+        registeredAgents: [],
       },
       { status: 500 }
     );

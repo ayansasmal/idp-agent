@@ -248,8 +248,7 @@ export class MCPAgentClient {
         try {
           // Simple ping to health endpoint
           const response = await fetch(entry.capabilities.endpoints.health, {
-            method: 'GET',
-            timeout: 5000
+            method: 'GET'
           });
 
           const healthy = response.ok;

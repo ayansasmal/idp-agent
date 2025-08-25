@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApprovalSchema, type Approval } from "@/lib/types";
-import { PrimaryAgent, createAgent, RequestContext } from "@core/index";
+import { MetaAgent, createMetaAgent } from "@ai-idp/meta-agent";
 import { z } from "zod";
 
 // Global agent instance
-let primaryAgent: PrimaryAgent | null = null;
+let metaAgent: MetaAgent | null = null;
 
 // Initialize agent on startup
-async function getAgent(): Promise<PrimaryAgent> {
-  if (!primaryAgent) {
+async function getAgent(): Promise<MetaAgent> {
+  if (!metaAgent) {
     try {
-      primaryAgent = await createAgent();
-      console.log('Primary Agent initialized for approvals API');
+      metaAgent = createMetaAgent();
+      await metaAgent.initialize();
+      console.log('Meta Agent initialized for approvals API');
     } catch (error) {
-      console.error('Failed to initialize Primary Agent for approvals:', error);
+      console.error('Failed to initialize Meta Agent for approvals:', error);
       throw new Error('Agent initialization failed');
     }
   }
-  return primaryAgent;
+  return metaAgent;
 }
 
 // Convert core approval format to web app format
