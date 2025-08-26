@@ -1,6 +1,6 @@
 import * as k8s from '@kubernetes/client-node';
 import * as yaml from 'js-yaml';
-import { Logger } from 'pino';
+import type { Logger } from '@ai-idp/utils';
 import type { InfrastructureAgentConfig } from '../agent/InfrastructureAgent';
 
 /**
@@ -26,7 +26,7 @@ export class KubernetesOperations {
    */
   async initialize(): Promise<void> {
     try {
-      this.logger.info('Initializing Kubernetes operations');
+      this.logger.info({}, 'Initializing Kubernetes operations');
 
       const kc = new k8s.KubeConfig();
 
@@ -34,22 +34,22 @@ export class KubernetesOperations {
       if (this.config.kubeconfig) {
         // Load from provided config
         kc.loadFromString(this.config.kubeconfig);
-        this.logger.info('Loaded provided Kubernetes config');
+        this.logger.info({}, 'Loaded provided Kubernetes config');
       } else {
         try {
           // Try in-cluster config first
           kc.loadFromCluster();
-          this.logger.info('Loaded in-cluster Kubernetes config');
+          this.logger.info({}, 'Loaded in-cluster Kubernetes config');
         } catch (clusterError) {
           // Fallback to default config
           try {
             kc.loadFromDefault();
-            this.logger.info('Loaded default Kubernetes config');
+            this.logger.info({}, 'Loaded default Kubernetes config');
           } catch (defaultError) {
-            this.logger.warn('No Kubernetes config found, running in simulation mode', {
+            this.logger.warn({
               clusterError: clusterError instanceof Error ? clusterError.message : 'Unknown',
               defaultError: defaultError instanceof Error ? defaultError.message : 'Unknown'
-            });
+            }, 'No Kubernetes config found, running in simulation mode');
             // Continue without K8s client for development
             return;
           }
@@ -63,10 +63,10 @@ export class KubernetesOperations {
       // Load available namespaces
       await this.loadNamespaces();
 
-      this.logger.info('Kubernetes operations initialized successfully');
+      this.logger.info({}, 'Kubernetes operations initialized successfully');
 
     } catch (error) {
-      this.logger.error('Failed to initialize Kubernetes operations', { error });
+      this.logger.error({ error }, 'Failed to initialize Kubernetes operations');
       throw error;
     }
   }
@@ -106,24 +106,19 @@ export class KubernetesOperations {
       let deploymentResult;
       try {
         // Try to patch existing deployment
-        deploymentResult = await this.k8sAppsApi.patchNamespacedDeployment(
-          resourceName,
+        deploymentResult = await this.k8sAppsApi.patchNamespacedDeployment({
+          name: resourceName,
           namespace,
-          deployment,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          { headers: { 'Content-Type': 'application/merge-patch+json' } }
-        );
-        this.logger.info('Updated existing deployment', { resourceName, namespace });
+          body: deployment
+        });
+        this.logger.info({ resourceName, namespace }, 'Updated existing deployment');
       } catch (patchError) {
         // Create new deployment
-        deploymentResult = await this.k8sAppsApi.createNamespacedDeployment(
+        deploymentResult = await this.k8sAppsApi.createNamespacedDeployment({
           namespace,
-          deployment
-        );
-        this.logger.info('Created new deployment', { resourceName, namespace });
+          body: deployment
+        });
+        this.logger.info({ resourceName, namespace }, 'Created new deployment');
       }
 
       // Create service manifest
@@ -132,20 +127,18 @@ export class KubernetesOperations {
       // Apply service
       try {
         // Try to patch existing service
-        await this.k8sApi!.patchNamespacedService(
-          resourceName,
+        await this.k8sApi!.patchNamespacedService({
+          name: resourceName,
           namespace,
-          service,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          { headers: { 'Content-Type': 'application/merge-patch+json' } }
-        );
+          body: service
+        });
       } catch (patchError) {
         // Create new service
-        await this.k8sApi!.createNamespacedService(namespace, service);
-        this.logger.info('Created new service', { resourceName, namespace });
+        await this.k8sApi!.createNamespacedService({
+          namespace,
+          body: service
+        });
+        this.logger.info({ resourceName, namespace }, 'Created new service');
       }
 
       // Wait for deployment to be ready (with timeout)
@@ -162,7 +155,7 @@ export class KubernetesOperations {
       };
 
     } catch (error) {
-      this.logger.error('Deployment failed', { error, params });
+      this.logger.error({ error, params }, 'Deployment failed');
       throw error;
     }
   }
@@ -188,12 +181,12 @@ export class KubernetesOperations {
       }
 
       // Get current deployment
-      const currentDeployment = await this.k8sAppsApi.readNamespacedDeployment(
-        resourceName,
+      const currentDeploymentResp = await this.k8sAppsApi.readNamespacedDeployment({
+        name: resourceName,
         namespace
-      );
-
-      const currentReplicas = currentDeployment.body.spec?.replicas || 0;
+      });
+      const currentDeployment = currentDeploymentResp;
+      const currentReplicas = currentDeployment.spec?.replicas || 0;
 
       if (currentReplicas === replicas) {
         return {
@@ -217,11 +210,11 @@ export class KubernetesOperations {
         }
       };
 
-      await this.k8sAppsApi.patchNamespacedDeploymentScale(
-        resourceName,
+      await this.k8sAppsApi.patchNamespacedDeploymentScale({
+        name: resourceName,
         namespace,
-        scaleObj
-      );
+        body: scaleObj
+      });
 
       // Wait for scaling to complete
       await this.waitForDeploymentReady(resourceName, namespace, 180000); // 3 minutes timeout
@@ -237,7 +230,7 @@ export class KubernetesOperations {
       };
 
     } catch (error) {
-      this.logger.error('Scaling failed', { error, params });
+      this.logger.error({ error, params }, 'Scaling failed');
       throw error;
     }
   }
@@ -279,7 +272,7 @@ export class KubernetesOperations {
         };
       }
 
-      this.logger.error('Status check failed', { error, params });
+      this.logger.error({ error, params }, 'Status check failed');
       throw error;
     }
   }
@@ -301,47 +294,34 @@ export class KubernetesOperations {
       const { resourceName, namespace, lines, follow } = params;
 
       // Get pods for the deployment
-      const pods = await this.k8sApi.listNamespacedPod(
+      const podsResp = await this.k8sApi.listNamespacedPod({
         namespace,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        `app=${resourceName}`
-      );
-
-      if (pods.body.items.length === 0) {
+        labelSelector: `app=${resourceName}`
+      });
+      const pods = podsResp;
+      if (pods.items.length === 0) {
         return {
           success: false,
           message: `No pods found for ${resourceName} in namespace ${namespace}`,
           data: { logs: [] }
         };
       }
-
       const logResults = [];
-      
       // Get logs from all pods (limit to first 3 for performance)
-      const targetPods = pods.body.items.slice(0, 3);
-      
+      const targetPods = pods.items.slice(0, 3);
+
       for (const pod of targetPods) {
         try {
-          const logResponse = await this.k8sApi.readNamespacedPodLog(
-            pod.metadata!.name!,
+          const logResponse = await this.k8sApi.readNamespacedPodLog({
+            name: pod.metadata!.name!,
             namespace,
-            undefined, // container
             follow,
-            undefined, // limitBytes
-            undefined, // pretty
-            undefined, // previous
-            undefined, // sinceSeconds
-            lines
-          );
-
+            tailLines: lines
+          });
           logResults.push({
             podName: pod.metadata!.name!,
-            logs: logResponse.body.split('\n').filter(line => line.trim() !== '')
+            logs: logResponse.split('\n').filter(line => line.trim() !== '')
           });
-
         } catch (podLogError) {
           logResults.push({
             podName: pod.metadata!.name!,
@@ -358,7 +338,7 @@ export class KubernetesOperations {
       };
 
     } catch (error) {
-      this.logger.error('Log retrieval failed', { error, params });
+      this.logger.error({ error, params }, 'Log retrieval failed');
       throw error;
     }
   }
@@ -376,12 +356,12 @@ export class KubernetesOperations {
       }
 
       // Test API connectivity by listing namespaces
-      const namespacesResponse = await this.k8sApi.listNamespace();
-      
+      const namespacesResp = await this.k8sApi.listNamespace({});
+      const namespaces = namespacesResp;
       return {
         healthy: true,
         details: {
-          namespaces: namespacesResponse.body.items.length,
+          namespaces: namespaces.items.length,
           availableNamespaces: this.availableNamespaces.length,
           apiVersion: 'v1'
         }
@@ -400,11 +380,12 @@ export class KubernetesOperations {
     if (!this.k8sApi) return;
 
     try {
-      const response = await this.k8sApi.listNamespace();
-      this.availableNamespaces = response.body.items.map(ns => ns.metadata!.name!);
-      this.logger.info('Loaded namespaces', { count: this.availableNamespaces.length });
+      const namespacesResp = await this.k8sApi.listNamespace({});
+      const namespaces = namespacesResp;
+      this.availableNamespaces = namespaces.items.map(ns => ns.metadata!.name!);
+      this.logger.info({ count: this.availableNamespaces.length }, 'Loaded namespaces');
     } catch (error) {
-      this.logger.warn('Failed to load namespaces', { error });
+      this.logger.warn({ error }, 'Failed to load namespaces');
       this.availableNamespaces = ['default'];
     }
   }
@@ -413,11 +394,11 @@ export class KubernetesOperations {
     if (!this.k8sApi) return;
 
     try {
-      await this.k8sApi.readNamespace(namespace);
+      await this.k8sApi.readNamespace({ name: namespace });
     } catch (error) {
       if (error.response?.statusCode === 404) {
         // Create namespace
-        const namespaceManifest = {
+        const namespaceManifest: k8s.V1Namespace = {
           apiVersion: 'v1',
           kind: 'Namespace',
           metadata: {
@@ -427,9 +408,8 @@ export class KubernetesOperations {
             }
           }
         };
-
-        await this.k8sApi.createNamespace(namespaceManifest);
-        this.logger.info('Created namespace', { namespace });
+        await this.k8sApi.createNamespace({ body: namespaceManifest });
+        this.logger.info({ namespace }, 'Created namespace');
       } else {
         throw error;
       }
@@ -546,28 +526,26 @@ export class KubernetesOperations {
 
     while (Date.now() - startTime < timeoutMs) {
       try {
-        const deployment = await this.k8sAppsApi!.readNamespacedDeployment(name, namespace);
-        const status = deployment.body.status;
-
+        const deploymentResp = await this.k8sAppsApi!.readNamespacedDeployment({ name, namespace });
+        const deployment = deploymentResp;
+        const status = deployment.status;
         if (
           status?.readyReplicas === status?.replicas &&
-          status?.readyReplicas === deployment.body.spec?.replicas
+          status?.readyReplicas === deployment.spec?.replicas
         ) {
-          this.logger.info('Deployment ready', { name, namespace });
+          this.logger.info({ name, namespace }, 'Deployment ready');
           return;
         }
-
-        this.logger.debug('Waiting for deployment', {
+        this.logger.debug({
           name,
           namespace,
           ready: status?.readyReplicas,
           desired: status?.replicas
-        });
-
+        }, 'Waiting for deployment');
         await new Promise(resolve => setTimeout(resolve, interval));
 
       } catch (error) {
-        this.logger.warn('Error checking deployment status', { error });
+        this.logger.warn({ error }, 'Error checking deployment status');
         await new Promise(resolve => setTimeout(resolve, interval));
       }
     }
@@ -576,44 +554,37 @@ export class KubernetesOperations {
   }
 
   private async getDeploymentStatus(name: string, namespace: string): Promise<any> {
-    const deployment = await this.k8sAppsApi!.readNamespacedDeployment(name, namespace);
-    
+    const deploymentResp = await this.k8sAppsApi!.readNamespacedDeployment({ name, namespace });
+    const deployment = deploymentResp;
     // Get pods
-    const pods = await this.k8sApi!.listNamespacedPod(
-      namespace,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      `app=${name}`
-    );
-
+    const podsResp = await this.k8sApi!.listNamespacedPod({ namespace, labelSelector: `app=${name}` });
+    const pods = podsResp;
     return {
       deployment: {
         name,
         namespace,
         replicas: {
-          desired: deployment.body.spec?.replicas || 0,
-          current: deployment.body.status?.replicas || 0,
-          ready: deployment.body.status?.readyReplicas || 0,
-          available: deployment.body.status?.availableReplicas || 0
+          desired: deployment.spec?.replicas || 0,
+          current: deployment.status?.replicas || 0,
+          ready: deployment.status?.readyReplicas || 0,
+          available: deployment.status?.availableReplicas || 0
         },
-        conditions: deployment.body.status?.conditions || []
+        conditions: deployment.status?.conditions || []
       },
-      pods: pods.body.items.map(pod => ({
+      pods: pods.items.map(pod => ({
         name: pod.metadata!.name!,
         phase: pod.status?.phase,
         ready: pod.status?.conditions?.find(c => c.type === 'Ready')?.status === 'True',
         restarts: pod.status?.containerStatuses?.[0]?.restartCount || 0,
         node: pod.spec?.nodeName,
-        age: this.calculateAge(pod.metadata!.creationTimestamp!)
+        age: this.calculateAge(String(pod.metadata!.creationTimestamp!))
       }))
     };
   }
 
   // Simulation methods for development without K8s
   private simulateDeployment(params: any): any {
-    this.logger.info('Simulating deployment (no K8s available)', { params });
+    this.logger.info({ params }, 'Simulating deployment (no K8s available)');
     return {
       success: true,
       message: `Simulated deployment of ${params.resourceName}`,
@@ -623,7 +594,7 @@ export class KubernetesOperations {
   }
 
   private simulateScaling(params: any): any {
-    this.logger.info('Simulating scaling (no K8s available)', { params });
+    this.logger.info({ params }, 'Simulating scaling (no K8s available)');
     return {
       success: true,
       message: `Simulated scaling of ${params.resourceName} to ${params.replicas} replicas`,
@@ -667,9 +638,9 @@ export class KubernetesOperations {
 - **Available Replicas**: ${deployment.replicas.available}
 
 ### 🔄 Pod Details
-${pods.map((pod: any) => 
-  `- **${pod.name}**: ${pod.phase} (${pod.ready ? 'Ready' : 'Not Ready'}) - ${pod.age} old`
-).join('\n')}
+${pods.map((pod: any) =>
+      `- **${pod.name}**: ${pod.phase} (${pod.ready ? 'Ready' : 'Not Ready'}) - ${pod.age} old`
+    ).join('\n')}
 
 ### 🔧 Next Steps
 - Monitor deployment: \`kubectl get deployment ${name} -n ${namespace}\`
@@ -712,14 +683,14 @@ ${pods.map((pod: any) =>
 - **Available**: ${deployment.replicas.available} replicas
 
 ### 🔄 Pod Status (${pods.length} pods)
-${pods.map((pod: any) => 
-  `- **${pod.name}**: ${pod.phase} - ${pod.ready ? '✅ Ready' : '❌ Not Ready'} (${pod.restarts} restarts) - ${pod.age} old`
-).join('\n')}
+${pods.map((pod: any) =>
+      `- **${pod.name}**: ${pod.phase} - ${pod.ready ? '✅ Ready' : '❌ Not Ready'} (${pod.restarts} restarts) - ${pod.age} old`
+    ).join('\n')}
 
 ### 📋 Recent Conditions
-${deployment.conditions.slice(-3).map((condition: any) => 
-  `- **${condition.type}**: ${condition.status} - ${condition.reason || 'N/A'}`
-).join('\n')}`;
+${deployment.conditions.slice(-3).map((condition: any) =>
+      `- **${condition.type}**: ${condition.status} - ${condition.reason || 'N/A'}`
+    ).join('\n')}`;
   }
 
   private formatLogsResponse(logResults: any[], name: string, namespace: string): string {
@@ -746,11 +717,11 @@ ${result.logs.slice(-10).join('\n')}
     const created = new Date(creationTimestamp);
     const now = new Date();
     const ageMs = now.getTime() - created.getTime();
-    
+
     const minutes = Math.floor(ageMs / (1000 * 60));
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
-    
+
     if (days > 0) return `${days}d`;
     if (hours > 0) return `${hours}h`;
     return `${minutes}m`;

@@ -1,4 +1,5 @@
-import { Logger } from 'pino';
+import { createLogger } from '@ai-idp/utils';
+import type { Logger } from 'pino';
 import type {
   AgentResponse,
   UserResponse,
@@ -17,8 +18,12 @@ import type {
 export class ResponseCoordinator {
   private logger: Logger;
 
-  constructor(logger: Logger) {
-    this.logger = logger.child({ component: 'ResponseCoordinator' });
+  constructor(logger?: Logger) {
+    this.logger = logger ? logger.child({ component: 'ResponseCoordinator' }) : createLogger({
+      service: 'meta-agent-response-coordinator',
+      level: 'info',
+      environment: (process.env.NODE_ENV as any) || 'development'
+    });
   }
 
   /**
@@ -29,16 +34,21 @@ export class ResponseCoordinator {
     intent: AgentIntent,
     userInput: string
   ): Promise<UserResponse> {
-    this.logger.info('Synthesizing agent responses', {
+    this.logger.info({
       responseCount: agentResponses.length,
       intent: intent.action,
       targetAgent: intent.agent
-    });
+    }, 'Synthesizing agent responses');
+    this.logger.info({
+      agentCount: agentResponses.length,
+      intent: intent.action,
+      userInput: userInput.substring(0, 100)
+    }, 'Synthesizing agent responses');
 
     try {
       // Determine overall success
       const overallSuccess = agentResponses.length > 0 && agentResponses.every(r => r.success);
-      
+
       // Get successful and failed responses
       const successfulResponses = agentResponses.filter(r => r.success);
       const failedResponses = agentResponses.filter(r => !r.success);
@@ -69,27 +79,34 @@ export class ResponseCoordinator {
         metadata: {
           agentsInvolved: agentResponses.map(r => r.agentId),
           totalExecutionTime: agentResponses.reduce(
-            (sum, r) => sum + r.metadata.executionTime, 
+            (sum, r) => sum + r.metadata.executionTime,
             0
           ),
           contextStored: true // Will be set by Meta-Agent
         }
       };
 
-      this.logger.info('Response synthesis completed', {
+      this.logger.info({
         success: overallSuccess,
         messageLength: message.length,
         hasDetailedResponse: !!detailedResponse,
         dataKeys: Object.keys(responseData).length
-      });
+      }, 'Response synthesis completed');
+      this.logger.info({
+        agentCount: agentResponses.length,
+        message: userResponse.message
+      }, 'Response synthesis completed');
 
       return userResponse;
 
     } catch (error) {
-      this.logger.error('Response synthesis failed', {
+      this.logger.error({
         error: error.message,
         responseCount: agentResponses.length
-      });
+      }, 'Response synthesis failed');
+      this.logger.error({
+        error: error?.message || error
+      }, 'Response synthesis failed');
 
       // Return error response
       return {
@@ -139,7 +156,7 @@ export class ResponseCoordinator {
     if (response.success) {
       return `${statusEmoji} ${agentEmoji} ${response.message}`;
     } else {
-      const errorContext = response.errors?.length ? 
+      const errorContext = response.errors?.length ?
         ` (${response.errors[0]})` : '';
       return `${statusEmoji} ${agentEmoji} ${response.message}${errorContext}`;
     }
@@ -155,7 +172,7 @@ export class ResponseCoordinator {
   ): string {
     const successCount = responses.filter(r => r.success).length;
     const totalCount = responses.length;
-    
+
     if (overallSuccess) {
       return `✅ Successfully completed your request using ${totalCount} specialized agents.`;
     } else {
@@ -210,20 +227,20 @@ export class ResponseCoordinator {
       const emoji = this.getAgentEmoji(response.agentId);
       const status = response.success ? '✅' : '❌';
       const displayName = this.getAgentDisplayName(response.agentId);
-      
+
       sections.push(`### ${emoji} ${displayName} ${status}`);
       sections.push(`**Action**: ${response.metadata.action}`);
       sections.push(`**Result**: ${response.message}`);
       sections.push(`**Execution Time**: ${response.metadata.executionTime}ms`);
-      
+
       if (response.errors?.length) {
         sections.push(`**Errors**: ${response.errors.join(', ')}`);
       }
-      
+
       if (response.warnings?.length) {
         sections.push(`**Warnings**: ${response.warnings.join(', ')}`);
       }
-      
+
       sections.push('');
     }
 
@@ -253,7 +270,7 @@ export class ResponseCoordinator {
       if (response.detailedResponse) {
         const emoji = this.getAgentEmoji(response.agentId);
         const displayName = this.getAgentDisplayName(response.agentId);
-        
+
         sections.push(`### ${emoji} ${displayName} Details`);
         sections.push(response.detailedResponse);
         sections.push('');
@@ -328,35 +345,35 @@ export class ResponseCoordinator {
           'Monitor resource utilization and scaling',
           'Verify service endpoints are accessible'
         ];
-      
+
       case 'security':
         return [
           'Review security scan results',
           'Monitor compliance dashboard',
           'Address any security findings promptly'
         ];
-      
+
       case 'workflow':
         return [
           'Track approval status in workflow dashboard',
           'Check notification channels for updates',
           'Monitor workflow execution progress'
         ];
-      
+
       case 'observability':
         return [
           'Review monitoring dashboards',
           'Set up alerts for key metrics',
           'Check log aggregation and analysis'
         ];
-      
+
       case 'cicd':
         return [
           'Monitor pipeline execution status',
           'Review build and test results',
           'Track deployment progression'
         ];
-      
+
       default:
         return [];
     }

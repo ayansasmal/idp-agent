@@ -1,4 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+// Local definition for RequestContext (remove import if not available)
+type RequestContext = {
+  userId: string;
+  sessionId: string;
+  originalRequest: string;
+  environment: string;
+  permissions: string[];
+  auditTrail: any[];
+  timestamp: string;
+};
 import { ApprovalSchema, type Approval } from "@/lib/types";
 import { MetaAgent, createMetaAgent } from "@ai-idp/meta-agent";
 import { z } from "zod";
@@ -28,13 +38,13 @@ function convertToWebApproval(coreApproval: any): Approval {
   const resource = platformAction.resourceName || coreApproval.resource || 'unknown';
   const action = platformAction.action || coreApproval.action || 'unknown';
   const environment = platformAction.environment || coreApproval.environment || 'development';
-  
+
   return {
     id: coreApproval.id,
-    state: coreApproval.status === 'pending' ? 'PENDING' : 
-           coreApproval.status === 'approved' ? 'APPROVED' : 
-           coreApproval.status === 'rejected' ? 'REJECTED' : 
-           coreApproval.status === 'expired' ? 'EXPIRED' : 'PENDING', // Default to PENDING for list format
+    state: coreApproval.status === 'pending' ? 'PENDING' :
+      coreApproval.status === 'approved' ? 'APPROVED' :
+        coreApproval.status === 'rejected' ? 'REJECTED' :
+          coreApproval.status === 'expired' ? 'EXPIRED' : 'PENDING', // Default to PENDING for list format
     resource: resource,
     action: action,
     parameters: {
@@ -58,10 +68,10 @@ function convertToWebApproval(coreApproval: any): Approval {
 export async function GET() {
   try {
     const agent = await getAgent();
-    
+
     // Use direct approval module access (bypasses AI processing)
     const result = await agent.getApprovalModule();
-    
+
     if (!result.success) {
       throw new Error(result.message || "Failed to fetch approvals from approval module");
     }
@@ -69,12 +79,12 @@ export async function GET() {
     // Convert core approval format to web app format
     const coreApprovals = result.result?.pendingApprovals || [];
     const webApprovals = coreApprovals.map(convertToWebApproval);
-    
+
     // Sort by creation date, newest first
-    const sortedApprovals = webApprovals.sort((a: any, b: any) => 
+    const sortedApprovals = webApprovals.sort((a: any, b: any) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    
+
     return NextResponse.json(sortedApprovals);
   } catch (error: any) {
     console.error("Failed to fetch approvals from approval module:", error);
@@ -92,19 +102,19 @@ export async function PATCH(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
-    
+
     if (!id) {
       return NextResponse.json(
         { error: "Approval ID is required" },
         { status: 400 }
       );
     }
-    
+
     const body = await req.json();
     const { state, reviewNotes, reviewedBy } = body;
-    
+
     const agent = await getAgent();
-    
+
     // Create context for the approval action
     const context: RequestContext = {
       userId: reviewedBy || "web-user",
@@ -117,7 +127,7 @@ export async function PATCH(req: NextRequest) {
     };
 
     let result;
-    
+
     if (state === "APPROVED") {
       // Approve the request using direct approval module access
       result = await agent.processApprovalAction("approve", id, reviewedBy || "web-user", reviewNotes);
@@ -137,7 +147,7 @@ export async function PATCH(req: NextRequest) {
 
     // Get the updated approval data from the result
     const approvalData = result.result || {};
-    
+
     // Convert to web format and return
     // Create a simple approval object for the response
     const webApproval = {
@@ -149,18 +159,18 @@ export async function PATCH(req: NextRequest) {
       // Add other fields as needed - we'll return what we have
       ...approvalData
     };
-    
+
     return NextResponse.json(webApproval);
   } catch (error: any) {
     console.error("Failed to update approval:", error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Invalid approval update data", details: error.issues },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: "Failed to update approval", message: error.message },
       { status: 500 }
@@ -172,14 +182,14 @@ export async function DELETE(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
-    
+
     if (!id) {
       return NextResponse.json(
         { error: "Approval ID is required" },
         { status: 400 }
       );
     }
-    
+
     // For now, we'll keep DELETE as a placeholder
     // In a real system, you might want to mark approvals as cancelled rather than delete them
     return NextResponse.json(
@@ -188,7 +198,7 @@ export async function DELETE(req: NextRequest) {
     );
   } catch (error: any) {
     console.error("Failed to delete approval:", error);
-    
+
     return NextResponse.json(
       { error: "Failed to delete approval", message: error.message },
       { status: 500 }

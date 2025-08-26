@@ -21,3 +21,5 @@ export interface LogContext {
   traceId?: string;
   spanId?: string;
 }
+
+export type { Logger, LoggerOptions } from 'pino';

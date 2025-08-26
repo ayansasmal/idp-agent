@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { messages, context } = body;
-    
+
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
         { error: "Messages array is required" },
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     // Extract namespace from user input if provided
     let userInput = lastMessage.content;
     let specificNamespace = undefined;
-    
+
     // Check if user input contains namespace specification
     const namespaceMatch = userInput.match(/\(use namespace:\s*([^)]+)\)/);
     if (namespaceMatch) {
@@ -67,13 +67,13 @@ export async function POST(req: NextRequest) {
 
     // Generate session ID from headers or create new one
     const sessionId = req.headers.get('x-session-id') || `web-session-${Date.now()}`;
-    
+
     // Get or create session with conversation context
     const session = await sessionManager.getSession(sessionId, operationRequest.context.userId);
-    
+
     // Generate context prompt from conversation history
     const contextPrompt = await sessionManager.generateContextPrompt(sessionId);
-    
+
     // Add user message to conversation history
     const userMessage: ConversationMessage = {
       id: `msg-${Date.now()}-user`,
@@ -86,12 +86,15 @@ export async function POST(req: NextRequest) {
     // Create enhanced user input with context
     const enhancedUserInput = contextPrompt ? `${contextPrompt}${userInput}` : userInput;
 
-    // Create conversation context for MetaAgent
+    // Create conversation context for MetaAgent (ensure correct types)
     const conversationContext: ConversationContext = {
       conversationId: sessionId,
       userId: operationRequest.context.userId,
       sessionId: sessionId,
-      history: await sessionManager.getConversationHistory(sessionId),
+      history: (await sessionManager.getConversationHistory(sessionId)).map(msg => ({
+        ...msg,
+        timestamp: typeof msg.timestamp === 'string' ? new Date(msg.timestamp) : msg.timestamp
+      })),
       metadata: {
         environment: operationRequest.context.environment,
         permissions: operationRequest.context.permissions,
@@ -104,10 +107,10 @@ export async function POST(req: NextRequest) {
 
     // Get the meta agent instance
     const agent = await getAgent();
-    
+
     // Process the request with MetaAgent using enhanced input with conversation context
     const result = await agent.processRequest(enhancedUserInput, conversationContext);
-    
+
     // Track deployed resources in session context
     if (result.success && result.data) {
       // Extract resource info from successful deployments
@@ -124,22 +127,22 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-    
+
     // Check if the result has approval metadata from the core agent
-    const approvalId = result.metadata?.approvalId;
+    const approvalId = result.metadata?.approvalId ?? result.data?.approvalId;
     const hasApprovalRequiredActions = !!approvalId;
-    
+
     // Check if this is a parameter validation response
     const requiresUserInput = result.data?.requiresUserInput === true;
     const missingParameters = result.data?.missingParameters || [];
-    
+
     // Generate response content from the agent's message
     let responseContent = result.message || "Operation processed successfully";
-    
+
     // Format parameter validation responses in a user-friendly way
     if (requiresUserInput && missingParameters.length > 0) {
       responseContent = "I need some additional information to proceed with your request:\n\n";
-      
+
       missingParameters.forEach((param: any, index: number) => {
         responseContent += `**${param.displayName || param.name}**: ${param.description}\n`;
         if (param.example) {
@@ -149,7 +152,7 @@ export async function POST(req: NextRequest) {
           responseContent += "\n";
         }
       });
-      
+
       responseContent += "\nYou can provide the missing information in your next message. For example:\n";
       if (missingParameters.length === 1) {
         const param = missingParameters[0];
@@ -158,17 +161,17 @@ export async function POST(req: NextRequest) {
           responseContent += `"${examples[0]}"`;
         }
       } else {
-        responseContent += `"${result.data?.originalRequest} with [missing information]"`;
+        responseContent += `"${result.data?.originalRequest ?? userInput} with [missing information]"`;
       }
     }
-    
+
     // Add approval information if needed
     else if (hasApprovalRequiredActions && approvalId) {
       const primaryAction = result.actions?.[0];
-      const riskLevel = primaryAction?.riskLevel || 'high';
+      const riskLevel = primaryAction?.riskLevel || result.data?.riskLevel || 'high';
       responseContent += `\n\n⚠️ **Approval Required**: This operation requires human approval due to ${riskLevel} risk level. View approval details: [Approval ${approvalId}](/approvals?id=${approvalId})`;
     }
-    
+
     // Add assistant message to conversation history
     const assistantMessage: ConversationMessage = {
       id: `msg-${Date.now()}-assistant`,
@@ -178,7 +181,10 @@ export async function POST(req: NextRequest) {
       metadata: {
         success: result.success,
         hasApproval: hasApprovalRequiredActions,
-        actions: result.actions?.length || 0
+        approvalId,
+        actions: result.actions?.length || 0,
+        riskLevel: result.actions?.[0]?.riskLevel || result.data?.riskLevel || 'low',
+        confidence: result.metadata?.confidence ?? result.data?.confidence ?? 0.85
       }
     };
     await sessionManager.addMessage(sessionId, assistantMessage);
@@ -192,9 +198,9 @@ export async function POST(req: NextRequest) {
       rawData: result.data,
       metadata: {
         requiresApproval: hasApprovalRequiredActions || false,
-        approvalId: approvalId,
-        confidence: result.metadata?.confidence || 0.85,
-        riskLevel: result.actions?.[0]?.riskLevel || 'low',
+        approvalId,
+        confidence: result.metadata?.confidence ?? result.data?.confidence ?? 0.85,
+        riskLevel: result.actions?.[0]?.riskLevel || result.data?.riskLevel || 'low',
         success: result.success,
         actions: result.actions?.length || 0,
         hasDetailedContent: !!result.detailedResponse,
@@ -205,10 +211,10 @@ export async function POST(req: NextRequest) {
         parameterValidation: requiresUserInput, // Alternative flag for UI
       },
     });
-    
+
     // Set session ID in response headers for client tracking
     response.headers.set('x-session-id', sessionId);
-    
+
     return response;
 
   } catch (error: any) {
@@ -219,7 +225,7 @@ export async function POST(req: NextRequest) {
       message: error.message,
       stack: error.stack
     });
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Invalid request format", details: error.issues },
@@ -228,8 +234,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
-        error: "Internal server error", 
+      {
+        error: "Internal server error",
         message: error.message || "Unknown error",
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       },
@@ -245,7 +251,7 @@ export async function GET() {
     console.log('Meta Agent obtained, calling getAgentStatus...');
     const status = await agent.getAgentStatus();
     console.log('Agent status received:', status);
-    
+
     return NextResponse.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
@@ -258,8 +264,8 @@ export async function GET() {
     console.error('Health check failed:', error);
     console.error('Error stack:', error.stack);
     return NextResponse.json(
-      { 
-        status: "unhealthy", 
+      {
+        status: "unhealthy",
         error: error.message,
         timestamp: new Date().toISOString(),
         agentReady: false,

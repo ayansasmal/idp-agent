@@ -47,10 +47,18 @@ export interface UserResponse {
   message: string;
   detailedResponse?: string;
   data?: any;
+  actions?: any[];
+  approvalId?: string;
+  confidence?: number;
+  riskLevel?: string;
   metadata: {
     agentsInvolved: string[];
     totalExecutionTime: number;
     contextStored: boolean;
+    approvalId?: string;
+    confidence?: number;
+    riskLevel?: string;
+    actions?: any[];
   };
 }
 

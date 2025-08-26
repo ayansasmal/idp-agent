@@ -44,10 +44,10 @@ export class InfrastructureMCPServer {
     try {
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
-      
+
       this.logger.info('Infrastructure MCP Server started successfully');
     } catch (error) {
-      this.logger.error('Failed to start Infrastructure MCP Server', { error });
+      this.logger.error({ error }, 'Failed to start Infrastructure MCP Server');
       throw error;
     }
   }
@@ -60,7 +60,7 @@ export class InfrastructureMCPServer {
       await this.server.close();
       this.logger.info('Infrastructure MCP Server stopped');
     } catch (error) {
-      this.logger.error('Failed to stop Infrastructure MCP Server', { error });
+      this.logger.error({ error }, 'Failed to stop Infrastructure MCP Server');
     }
   }
 
@@ -71,7 +71,6 @@ export class InfrastructureMCPServer {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const capabilities = this.agent.getCapabilities();
-      
       return {
         tools: capabilities.tools.map(tool => ({
           name: tool.name,
@@ -81,60 +80,130 @@ export class InfrastructureMCPServer {
       };
     });
 
-    // Handle tool calls
+    // Handle tool calls (request object pattern)
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+      const { tool, arguments: args, context } = request.params;
 
-      this.logger.info('Received tool call', { 
-        tool: name, 
-        arguments: Object.keys(args || {}) 
-      });
+      // Validate required arguments for each tool
+      let missing: string[] = [];
+      let requestObj: any = {};
+      const ctx = context || args?.context || {
+        conversationId: `mcp-${Date.now()}`,
+        userId: 'mcp-user',
+        sessionId: `mcp-session-${Date.now()}`,
+        history: [],
+        metadata: {}
+      };
+
+      switch (tool) {
+        case 'deployApplication':
+          missing = ['resourceName', 'containerImage'].filter(k => !(args && args[k]));
+          requestObj = {
+            resourceName: args?.resourceName,
+            containerImage: args?.containerImage,
+            namespace: args?.namespace,
+            replicas: args?.replicas,
+            port: args?.port,
+            environment: args?.environment,
+            context: ctx
+          };
+          break;
+        case 'scaleResource':
+          missing = ['resourceName', 'replicas'].filter(k => !(args && args[k]));
+          requestObj = {
+            resourceName: args?.resourceName,
+            replicas: args?.replicas,
+            namespace: args?.namespace,
+            resourceType: args?.resourceType,
+            context: ctx
+          };
+          break;
+        case 'getResourceStatus':
+          missing = ['resourceName'].filter(k => !(args && args[k]));
+          requestObj = {
+            resourceName: args?.resourceName,
+            namespace: args?.namespace,
+            resourceType: args?.resourceType,
+            context: ctx
+          };
+          break;
+        case 'getResourceLogs':
+          missing = ['resourceName'].filter(k => !(args && args[k]));
+          requestObj = {
+            resourceName: args?.resourceName,
+            namespace: args?.namespace,
+            lines: args?.lines,
+            follow: args?.follow,
+            context: ctx
+          };
+          break;
+        case 'provisionDatabase':
+          missing = ['databaseType', 'name'].filter(k => !(args && args[k]));
+          requestObj = {
+            databaseType: args?.databaseType,
+            name: args?.name,
+            size: args?.size,
+            environment: args?.environment,
+            context: ctx
+          };
+          break;
+        default:
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  message: `Unknown tool: ${tool}`,
+                  data: {},
+                  metadata: { tool, agent: 'infrastructure', executionTime: 0 }
+                }, null, 2)
+              }
+            ],
+            isError: true
+          };
+      }
+
+      if (missing.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                message: `Missing required arguments: ${missing.join(', ')}`,
+                data: {},
+                metadata: { tool, agent: 'infrastructure', executionTime: 0 }
+              }, null, 2)
+            }
+          ],
+          isError: true
+        };
+      }
+
+      this.logger.info({ tool, args: requestObj }, `Received tool call: ${tool}`);
 
       try {
-        // Add context to arguments for the agent methods
-        const context: ConversationContext = args?.context || {
-          conversationId: `mcp-${Date.now()}`,
-          userId: 'mcp-user',
-          sessionId: `mcp-session-${Date.now()}`,
-          history: [],
-          metadata: {}
-        };
-
-        const argsWithContext = { ...args, context };
-
         let result;
-
-        // Route to appropriate agent method based on tool name
-        switch (name) {
+        switch (tool) {
           case 'deployApplication':
-            result = await this.agent.deployApplication(argsWithContext);
+            result = await this.agent.deployApplication(requestObj);
             break;
-
           case 'scaleResource':
-            result = await this.agent.scaleResource(argsWithContext);
+            result = await this.agent.scaleResource(requestObj);
             break;
-
           case 'getResourceStatus':
-            result = await this.agent.getResourceStatus(argsWithContext);
+            result = await this.agent.getResourceStatus(requestObj);
             break;
-
           case 'getResourceLogs':
-            result = await this.agent.getResourceLogs(argsWithContext);
+            result = await this.agent.getResourceLogs(requestObj);
             break;
-
           case 'provisionDatabase':
-            result = await this.agent.provisionDatabase(argsWithContext);
+            result = await this.agent.provisionDatabase(requestObj);
             break;
-
-          default:
-            throw new Error(`Unknown tool: ${name}`);
         }
 
-        this.logger.info('Tool call completed', {
-          tool: name,
-          success: result.success,
-          executionTime: result.metadata?.executionTime
-        });
+        this.logger.info({ tool, success: result.success, executionTime: result.metadata?.executionTime }, `Tool call completed: ${tool}`);
 
         return {
           content: [
@@ -144,23 +213,18 @@ export class InfrastructureMCPServer {
             }
           ]
         };
-
       } catch (error) {
-        this.logger.error('Tool call failed', {
-          tool: name,
-          error: error.message
-        });
-
+        this.logger.error({ tool, error: error.message }, `Tool call failed: ${tool}`);
         return {
           content: [
             {
-              type: 'text', 
+              type: 'text',
               text: JSON.stringify({
                 success: false,
                 message: `Tool call failed: ${error.message}`,
                 data: { error: error.message },
                 metadata: {
-                  tool: name,
+                  tool,
                   agent: 'infrastructure',
                   executionTime: 0
                 }
@@ -285,7 +349,7 @@ export class InfrastructureHTTPServer {
           };
 
         } catch (error) {
-          this.logger.error('MCP request failed', { error });
+          this.logger.error({ error }, 'MCP request failed');
           reply.code(500);
           return {
             jsonrpc: '2.0',
@@ -347,7 +411,7 @@ export class InfrastructureHTTPServer {
           return result;
 
         } catch (error) {
-          this.logger.error('Direct tool call failed', { error });
+          this.logger.error({ error }, 'Direct tool call failed');
           reply.code(500);
           return { error: error.message };
         }
@@ -355,11 +419,11 @@ export class InfrastructureHTTPServer {
 
       // Start server
       await this.fastify.listen({ port, host: '0.0.0.0' });
-      
+
       this.logger.info(`Infrastructure HTTP Server started on port ${port}`);
 
     } catch (error) {
-      this.logger.error('Failed to start Infrastructure HTTP Server', { error });
+      this.logger.error({ error }, 'Failed to start Infrastructure HTTP Server');
       throw error;
     }
   }
@@ -374,7 +438,7 @@ export class InfrastructureHTTPServer {
         this.logger.info('Infrastructure HTTP Server stopped');
       }
     } catch (error) {
-      this.logger.error('Failed to stop Infrastructure HTTP Server', { error });
+      this.logger.error({ error }, 'Failed to stop Infrastructure HTTP Server');
     }
   }
 }

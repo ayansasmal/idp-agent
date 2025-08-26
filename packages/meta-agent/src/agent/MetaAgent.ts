@@ -1,7 +1,15 @@
 import { Anthropic } from '@anthropic-ai/sdk';
 import { OpenAI } from 'openai';
-import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  createLogger,
+  validateData,
+  configSchemas,
+  ServiceError,
+  ErrorCode,
+  Logger
+} from '@ai-idp/utils';
+import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
 import { MCPAgentClient } from '@ai-idp/mcp-client';
 import type {
@@ -16,7 +24,6 @@ import type {
 import { IntentClassifier } from '../routing/IntentClassifier';
 import { ContextManager } from '../context/ContextManager';
 import { ResponseCoordinator } from './ResponseCoordinator';
-import { Logger } from 'pino';
 
 // Meta-Agent Configuration
 export interface MetaAgentConfig {
@@ -34,10 +41,14 @@ export interface MetaAgentConfig {
     url: string;
     apiKey?: string;
     collectionName: string;
+    vectorSize?: number;
+    timeout?: number;
   };
   mcp: {
+    serverPort?: number;
     clientTimeout: number;
     maxRetries: number;
+    retryDelay?: number;
   };
 }
 
@@ -55,11 +66,15 @@ const MetaAgentConfigSchema = z.object({
   qdrant: z.object({
     url: z.string().url(),
     apiKey: z.string().optional(),
-    collectionName: z.string().default('meta_agent_context')
+    collectionName: z.string().default('meta_agent_context'),
+    vectorSize: z.number().default(1536),
+    timeout: z.number().default(30000)
   }),
   mcp: z.object({
+    serverPort: z.number().default(3001),
     clientTimeout: z.number().default(30000),
-    maxRetries: z.number().default(3)
+    maxRetries: z.number().default(3),
+    retryDelay: z.number().default(1000)
   })
 });
 
@@ -73,6 +88,21 @@ const MetaAgentConfigSchema = z.object({
  * - Response synthesis and user communication
  */
 export class MetaAgent {
+  /**
+   * Stub: Get approval module (for compatibility)
+   */
+  async getApprovalModule(): Promise<any> {
+    // TODO: Implement actual logic or proxy to core agent
+    return { success: false, message: 'getApprovalModule not implemented' };
+  }
+
+  /**
+   * Stub: Process approval action (for compatibility)
+   */
+  async processApprovalAction(action: string, id: string, reviewedBy: string, reviewNotes?: string): Promise<any> {
+    // TODO: Implement actual logic or proxy to core agent
+    return { success: false, message: 'processApprovalAction not implemented' };
+  }
   private config: z.infer<typeof MetaAgentConfigSchema>;
   private anthropic?: Anthropic;
   private openai?: OpenAI;
@@ -87,9 +117,20 @@ export class MetaAgent {
   // Registered focused agents
   private registeredAgents: Map<string, AgentCapabilities> = new Map();
 
-  constructor(config: MetaAgentConfig, logger: Logger) {
-    this.config = MetaAgentConfigSchema.parse(config);
-    this.logger = logger.child({ component: 'MetaAgent' });
+  constructor(config: MetaAgentConfig, logger?: Logger) {
+    // Validate configuration using utils
+    this.config = validateData(
+      config,
+      MetaAgentConfigSchema,
+      { service: 'meta-agent', operation: 'constructor' }
+    );
+
+    // Create or use provided logger
+    this.logger = logger ? (logger.child ? logger.child({ component: 'MetaAgent' }) as Logger : logger) : createLogger({
+      service: 'meta-agent',
+      level: 'info',
+      environment: (process.env.NODE_ENV as any) || 'development'
+    });
 
     // Initialize AI providers
     if (this.config.anthropic) {
@@ -111,7 +152,11 @@ export class MetaAgent {
       this.logger
     );
 
-    this.mcpClient = new MCPAgentClient(this.config.mcp, this.logger);
+    this.mcpClient = new MCPAgentClient(this.config.mcp, {
+      service: 'meta-agent-mcp',
+      level: 'info',
+      environment: (process.env.NODE_ENV as any) || 'development'
+    });
 
     // Initialize sub-components
     this.intentClassifier = new IntentClassifier(this.anthropic, this.openai, this.logger);
@@ -124,25 +169,25 @@ export class MetaAgent {
    */
   async initialize(): Promise<void> {
     try {
-      this.logger.info('Initializing Meta-Agent');
+      this.logger.info({}, 'Initializing Meta-Agent');
 
       // Initialize Qdrant context storage
       await this.qdrantClient.initialize();
-      this.logger.info('Qdrant context client initialized');
+      this.logger.info({}, 'Qdrant context client initialized');
 
       // Initialize context manager
       await this.contextManager.initialize();
-      this.logger.info('Context manager initialized');
+      this.logger.info({}, 'Context manager initialized');
 
       // Validate AI providers
       await this.validateAIProviders();
-      this.logger.info('AI providers validated');
+      this.logger.info({}, 'AI providers validated');
 
       this.isInitialized = true;
-      this.logger.info('Meta-Agent initialized successfully');
+      this.logger.info({}, 'Meta-Agent initialized successfully');
 
-    } catch (error) {
-      this.logger.error('Failed to initialize Meta-Agent', { error });
+    } catch (error: any) {
+      this.logger.error({ error: error?.message || error }, 'Failed to initialize Meta-Agent');
       throw error;
     }
   }
@@ -152,11 +197,11 @@ export class MetaAgent {
    */
   async registerFocusedAgent(capabilities: AgentCapabilities): Promise<void> {
     try {
-      this.logger.info(`Registering focused agent: ${capabilities.agentId}`, {
+      this.logger.info({
         name: capabilities.name,
         tools: capabilities.tools.length,
         specializations: capabilities.specializations
-      });
+      }, `Registering focused agent: ${capabilities.agentId}`);
 
       // Register with MCP client
       await this.mcpClient.registerAgent(capabilities);
@@ -164,9 +209,9 @@ export class MetaAgent {
       // Store in local registry
       this.registeredAgents.set(capabilities.agentId, capabilities);
 
-      this.logger.info(`Successfully registered focused agent: ${capabilities.agentId}`);
-    } catch (error) {
-      this.logger.error(`Failed to register focused agent: ${capabilities.agentId}`, { error });
+      this.logger.info({}, `Successfully registered focused agent: ${capabilities.agentId}`);
+    } catch (error: any) {
+      this.logger.error({ error: error?.message || error }, `Failed to register focused agent: ${capabilities.agentId}`);
       throw error;
     }
   }
@@ -185,12 +230,12 @@ export class MetaAgent {
     const startTime = Date.now();
     const requestId = uuidv4();
 
-    this.logger.info('Processing user request', {
+    this.logger.info({
       requestId,
       userInput: userInput.substring(0, 100),
       userId: context.userId,
       conversationId: context.conversationId
-    });
+    }, 'Processing user request');
 
     try {
       // 1. Retrieve relevant context from Qdrant
@@ -199,10 +244,10 @@ export class MetaAgent {
         context
       );
 
-      this.logger.info('Retrieved relevant context', {
+      this.logger.info({
         requestId,
         contextItems: relevantContext.length
-      });
+      }, 'Retrieved relevant context');
 
       // 2. Classify intent and determine agent routing
       const intent = await this.intentClassifier.classifyIntent(
@@ -211,21 +256,21 @@ export class MetaAgent {
         relevantContext
       );
 
-      this.logger.info('Intent classified', {
+      this.logger.info({
         requestId,
         targetAgent: intent.agent,
         action: intent.action,
         confidence: intent.confidence
-      });
+      }, 'Intent classified');
 
       // 3. Route to appropriate focused agent(s)
       const agentResponses = await this.routeToAgents(intent, context);
 
-      this.logger.info('Agent execution completed', {
+      this.logger.info({
         requestId,
         agentCount: agentResponses.length,
         successful: agentResponses.filter(r => r.success).length
-      });
+      }, 'Agent execution completed');
 
       // 4. Coordinate and synthesize responses
       const userResponse = await this.responseCoordinator.synthesizeResponse(
@@ -245,28 +290,28 @@ export class MetaAgent {
       const executionTime = Date.now() - startTime;
       userResponse.metadata.totalExecutionTime = executionTime;
 
-      this.logger.info('Request processed successfully', {
+      this.logger.info({
         requestId,
         executionTime,
         success: userResponse.success,
         agentsInvolved: userResponse.metadata.agentsInvolved
-      });
+      }, 'Request processed successfully');
 
       return userResponse;
 
-    } catch (error) {
+    } catch (error: any) {
       const executionTime = Date.now() - startTime;
 
-      this.logger.error('Failed to process request', {
+      this.logger.error({
         requestId,
-        error: error.message,
+        error: error?.message || error,
         executionTime
-      });
+      }, 'Failed to process request');
 
       // Return error response
       return {
         success: false,
-        message: `I encountered an error processing your request: ${error.message}`,
+        message: `I encountered an error processing your request: ${error?.message || error}`,
         metadata: {
           agentsInvolved: [],
           totalExecutionTime: executionTime,
@@ -289,8 +334,8 @@ export class MetaAgent {
     }
 
     // Find appropriate tool for the action
-    const tool = targetAgent.tools.find(t => 
-      t.name === intent.action || 
+    const tool = targetAgent.tools.find(t =>
+      t.name === intent.action ||
       t.name.includes(intent.action) ||
       intent.action.includes(t.name)
     );
@@ -299,11 +344,11 @@ export class MetaAgent {
       throw new Error(`No tool found for action: ${intent.action} on agent: ${intent.agent}`);
     }
 
-    this.logger.info('Routing to agent', {
+    this.logger.info({
       agent: intent.agent,
       tool: tool.name,
       parameters: Object.keys(intent.parameters)
-    });
+    }, 'Routing to agent');
 
     // Call the focused agent via MCP
     const mcpResponse = await this.mcpClient.callTool(
@@ -345,12 +390,12 @@ export class MetaAgent {
    * Execute multi-agent workflow (for complex operations)
    */
   async executeWorkflow(workflow: MultiAgentWorkflow): Promise<UserResponse> {
-    this.logger.info('Executing multi-agent workflow', {
+    this.logger.info({
       workflowId: workflow.workflowId,
       name: workflow.name,
       agents: workflow.agents,
       steps: workflow.steps.length
-    });
+    }, 'Executing multi-agent workflow');
 
     const agentResponses: AgentResponse[] = [];
     const startTime = Date.now();
@@ -364,10 +409,10 @@ export class MetaAgent {
         );
 
         if (!dependenciesMet) {
-          this.logger.warn('Workflow step dependencies not met', {
+          this.logger.warn({
             stepId: step.stepId,
             dependencies: step.dependencies
-          });
+          }, 'Workflow step dependencies not met');
           continue;
         }
 
@@ -397,11 +442,11 @@ export class MetaAgent {
 
         // Stop if step failed and is critical
         if (!agentResponse.success) {
-          this.logger.error('Workflow step failed', {
+          this.logger.error({
             workflowId: workflow.workflowId,
             stepId: step.stepId,
-            error: mcpResponse.error
-          });
+            error: mcpResponse.error?.message || mcpResponse.error
+          }, 'Workflow step failed');
           break;
         }
       }
@@ -418,10 +463,10 @@ export class MetaAgent {
       return userResponse;
 
     } catch (error) {
-      this.logger.error('Workflow execution failed', {
+      this.logger.error({
         workflowId: workflow.workflowId,
-        error: error.message
-      });
+        error: error?.message || error
+      }, 'Workflow execution failed');
 
       return {
         success: false,
@@ -477,8 +522,8 @@ export class MetaAgent {
           messages: [{ role: 'user', content: 'Test' }]
         });
         providers.push('anthropic');
-      } catch (error) {
-        this.logger.warn('Anthropic provider validation failed', { error });
+      } catch (error: any) {
+        this.logger.warn({ error: error?.message || error }, 'Anthropic provider validation failed');
       }
     }
 
@@ -491,8 +536,8 @@ export class MetaAgent {
           max_tokens: 10
         });
         providers.push('openai');
-      } catch (error) {
-        this.logger.warn('OpenAI provider validation failed', { error });
+      } catch (error: any) {
+        this.logger.warn({ error: error?.message || error }, 'OpenAI provider validation failed');
       }
     }
 
@@ -500,20 +545,20 @@ export class MetaAgent {
       throw new Error('No valid AI providers available');
     }
 
-    this.logger.info('AI providers validated', { providers });
+    this.logger.info({ providers }, 'AI providers validated');
   }
 
   /**
    * Cleanup resources
    */
   async cleanup(): Promise<void> {
-    this.logger.info('Cleaning up Meta-Agent resources');
+    this.logger.info({}, 'Cleaning up Meta-Agent resources');
 
     try {
       await this.mcpClient.cleanup();
-      this.logger.info('Meta-Agent cleanup completed');
-    } catch (error) {
-      this.logger.error('Meta-Agent cleanup failed', { error });
+      this.logger.info({}, 'Meta-Agent cleanup completed');
+    } catch (error: any) {
+      this.logger.error({ error: error?.message || error }, 'Meta-Agent cleanup failed');
       throw error;
     }
   }

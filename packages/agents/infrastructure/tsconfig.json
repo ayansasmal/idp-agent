@@ -7,6 +7,7 @@
     "paths": {
       "@/*": ["./*"],
       "@ai-idp/types": ["../../shared/types/src"],
+      "@ai-idp/utils": ["../../shared/utils/src"],
       "@ai-idp/qdrant-client": ["../../shared/qdrant-client/src"]
     }
   },
@@ -14,6 +15,7 @@
   "exclude": ["node_modules", "dist"],
   "references": [
     { "path": "../../shared/types" },
+    { "path": "../../shared/utils" },
     { "path": "../../shared/qdrant-client" }
   ]
 }

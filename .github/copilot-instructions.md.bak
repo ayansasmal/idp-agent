@@ -1,0 +1,60 @@
+# Copilot Instructions for AI-IDP Multi-Agent Codebase (Backup)
+
+---
+
+[Backup created on 2025-08-26]
+
+---
+
+# Original Content
+
+## Big Picture Architecture
+- **Meta-Agent Orchestrator**: Central AI agent routes requests to specialized domain agents (Infrastructure, Security, Workflow, Observability).
+- **Focused Agents**: Each agent exposes domain operations via MCP (Model Context Protocol) server/client, using request object patterns and shared types.
+- **Shared Context**: Qdrant vector DB enables cross-agent memory and learning; all agents read/write context for improved recommendations and audit.
+- **Web App**: Next.js frontend interacts with Meta-Agent via API endpoints, supporting conversational workflows and approval management.
+- **Utilities**: All agents/services use `@ai-idp/utils` for HTTP, logging, error handling, validation, and config management.
+
+## Developer Workflows
+- **Build/Dev**: Use `npm run dev` (root or `packages/web-app`) for local development; `docker-compose up -d` for backend services.
+- **Database**: Run `npx prisma migrate dev` and `npx prisma generate` for DB setup; use `./scripts/create-dynamodb-tables.sh` for DynamoDB tables.
+- **Testing**: Use `vitest` for unit/integration tests (see `vitest.workspace.ts`).
+- **Session Management**: Persistent chat/approval sessions via DynamoDB (see `packages/web-app/src/lib/session-manager.ts`).
+
+## Project-Specific Patterns
+- **Request Object Pattern**: All agent methods (e.g., `deployApplication`, `scaleResource`) require a single object with all arguments and a valid `ConversationContext`.
+- **Approval Workflow**: Approval APIs expect `approvalId`, `riskLevel`, and `confidence` in responses; approval actions handled via Meta-Agent and core agent stubs.
+- **Type Safety**: Use shared types from `@ai-idp/types` everywhere; update `UserResponse`/`AgentResponse` to include approval and metadata fields.
+- **Logging**: Use Pino logger via `@ai-idp/utils` with structured context for all agent/service logs.
+- **Error Handling**: Prefer explicit error types; return Zod validation issues in API responses.
+
+## Integration Points
+- **MCP Protocol**: All agent-to-agent and agent-to-meta communication uses MCP request/response objects.
+- **Qdrant**: All agents store/retrieve context vectors for learning and audit.
+- **External APIs**: Anthropic Claude, OpenAI, Kubernetes, AWS (via SDKs and config).
+
+## Key Files & Directories
+- `/README.md`, `/docs/MULTI-AGENT-ARCHITECTURE.md`: Architecture, workflows, and conventions.
+- `/packages/agents/infrastructure/src/mcp/MCPServer.ts`: Example of MCP server and request object pattern.
+- `/packages/web-app/src/app/api/agent/route.ts`: Web API route using latest types and approval workflow.
+- `/packages/shared/types/src/index.ts`: Source of all shared types/interfaces.
+- `/packages/shared/utils/README.md`: Utility library usage and patterns.
+
+## Examples
+- **Agent Method Call**:
+  ```typescript
+  await agent.deployApplication({ resourceName, containerImage, context });
+  ```
+- **MCP Request**:
+  ```typescript
+  const request: CallToolRequest = { tool: 'deployApplication', arguments: { ... }, context };
+  await mcpClient.callTool(request);
+  ```
+- **Approval Response**:
+  ```typescript
+  { success: true, approvalId, riskLevel, confidence, ... }
+  ```
+
+---
+
+For more details, see `/docs/TYPE-CHECK-ERROR-RESOLUTIONS.md` and `/COPILOT-INSTRUCTIONS.md`. Update this file as new patterns emerge.

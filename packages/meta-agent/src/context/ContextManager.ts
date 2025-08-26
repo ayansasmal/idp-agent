@@ -1,5 +1,6 @@
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
-import { Logger } from 'pino';
+import { createLogger } from '@ai-idp/utils';
+import type { Logger } from 'pino';
 import type {
   ConversationContext,
   VectorSearchResult,
@@ -20,16 +21,16 @@ export class ContextManager {
   private qdrantClient: QdrantContextClient;
   private logger: Logger;
 
-  constructor(qdrantClient: QdrantContextClient, logger: Logger) {
+  constructor(qdrantClient: QdrantContextClient, logger?: Logger) {
     this.qdrantClient = qdrantClient;
-    this.logger = logger.child({ component: 'ContextManager' });
+    this.logger = logger && logger.child ? logger.child({ component: 'ContextManager' }) as Logger : logger;
   }
 
   /**
    * Initialize context management
    */
   async initialize(): Promise<void> {
-    this.logger.info('Initializing Context Manager');
+    this.logger.info({}, 'Initializing Context Manager');
     // Qdrant client is already initialized by Meta-Agent
   }
 
@@ -42,11 +43,11 @@ export class ContextManager {
     limit: number = 5
   ): Promise<VectorSearchResult[]> {
     try {
-      this.logger.info('Retrieving relevant context', {
+      this.logger.info({
         query: userInput.substring(0, 50),
         conversationId: context.conversationId,
         limit
-      });
+      }, 'Retrieving relevant context');
 
       // Build enhanced query with conversation context
       const enhancedQuery = this.enhanceQueryWithContext(userInput, context);
@@ -61,19 +62,19 @@ export class ContextManager {
       // Filter and rank results
       const filteredResults = this.filterContextResults(results, context);
 
-      this.logger.info('Context retrieval completed', {
+      this.logger.info({
         totalResults: results.length,
         filteredResults: filteredResults.length,
         topScore: filteredResults[0]?.score
-      });
+      }, 'Context retrieval completed');
 
       return filteredResults;
 
     } catch (error) {
-      this.logger.error('Context retrieval failed', {
-        error: error.message,
+      this.logger.error({
+        error: error?.message || error,
         userInput: userInput.substring(0, 100)
-      });
+      }, 'Context retrieval failed');
       return []; // Return empty context on failure
     }
   }
@@ -88,11 +89,11 @@ export class ContextManager {
     agentResponses: AgentResponse[]
   ): Promise<void> {
     try {
-      this.logger.info('Storing interaction context', {
+      this.logger.info({
         conversationId: context.conversationId,
         agentCount: agentResponses.length,
         success: userResponse.success
-      });
+      }, 'Storing interaction context');
 
       // Store main conversation context
       await this.qdrantClient.storeConversationContext(
@@ -127,13 +128,13 @@ export class ContextManager {
         await this.storeSuccessPattern(userInput, agentResponses, context);
       }
 
-      this.logger.info('Interaction context stored successfully');
+      this.logger.info({}, 'Interaction context stored successfully');
 
     } catch (error) {
-      this.logger.error('Failed to store interaction context', {
-        error: error.message,
+      this.logger.error({
+        error: error?.message || error,
         conversationId: context.conversationId
-      });
+      }, 'Failed to store interaction context');
       // Don't throw error to avoid breaking user interaction
     }
   }
@@ -158,17 +159,17 @@ export class ContextManager {
         outcome
       );
 
-      this.logger.info('Decision context stored', {
+      this.logger.info({
         decisionId,
         agent,
         decision: decision.substring(0, 50)
-      });
+      }, 'Decision context stored');
 
     } catch (error) {
-      this.logger.error('Failed to store decision context', {
-        error: error.message,
+      this.logger.error({
+        error: error?.message || error,
         decisionId
-      });
+      }, 'Failed to store decision context');
     }
   }
 
@@ -187,19 +188,19 @@ export class ContextManager {
         limit
       );
 
-      this.logger.info('Retrieved historical patterns', {
+      this.logger.info({
         query: query.substring(0, 50),
         agent,
         patternCount: patterns.length
-      });
+      }, 'Retrieved historical patterns');
 
       return patterns;
 
     } catch (error) {
-      this.logger.error('Failed to retrieve historical patterns', {
-        error: error.message,
+      this.logger.error({
+        error: error?.message || error,
         query: query.substring(0, 50)
-      });
+      }, 'Failed to retrieve historical patterns');
       return [];
     }
   }
@@ -219,19 +220,19 @@ export class ContextManager {
         limit
       );
 
-      this.logger.info('Retrieved decision history', {
+      this.logger.info({
         context: decisionContext.substring(0, 50),
         agent,
         decisionCount: decisions.length
-      });
+      }, 'Retrieved decision history');
 
       return decisions;
 
     } catch (error) {
-      this.logger.error('Failed to retrieve decision history', {
-        error: error.message,
+      this.logger.error({
+        error: error?.message || error,
         context: decisionContext.substring(0, 50)
-      });
+      }, 'Failed to retrieve decision history');
       return [];
     }
   }
@@ -251,11 +252,11 @@ export class ContextManager {
   }> {
     // This is a simplified implementation
     // In production, you'd want more sophisticated analytics
-    
-    this.logger.info('Analyzing context trends', {
+
+    this.logger.info({
       timeRange,
       agent
-    });
+    }, 'Analyzing context trends');
 
     // For now, return mock data
     // TODO: Implement actual trend analysis using Qdrant aggregations
@@ -284,10 +285,10 @@ export class ContextManager {
     // Combine user input with recent context
     const enhancedQuery = `${userInput} ${recentMessages}`.trim();
 
-    this.logger.debug('Enhanced query with context', {
+    this.logger.debug({
       original: userInput.substring(0, 50),
       enhanced: enhancedQuery.substring(0, 100)
-    });
+    }, 'Enhanced query with context');
 
     return enhancedQuery;
   }
@@ -303,8 +304,8 @@ export class ContextManager {
       // Filter out very low scores
       .filter(result => result.score >= 0.7)
       // Filter out results from current conversation (avoid circular context)
-      .filter(result => 
-        !result.payload.metadata?.conversationId || 
+      .filter(result =>
+        !result.payload.metadata?.conversationId ||
         result.payload.metadata.conversationId !== context.conversationId
       )
       // Sort by score (highest first)
@@ -323,7 +324,7 @@ export class ContextManager {
   ): Promise<void> {
     try {
       const pattern = this.extractPattern(userInput, agentResponses);
-      
+
       await this.qdrantClient.storeExecutionPattern(
         `pattern_${Date.now()}`,
         agentResponses[0]?.agentId || 'unknown',
@@ -339,9 +340,9 @@ export class ContextManager {
       );
 
     } catch (error) {
-      this.logger.warn('Failed to store success pattern', {
-        error: error.message
-      });
+      this.logger.warn({
+        error: error?.message || error
+      }, 'Failed to store success pattern');
     }
   }
 
@@ -354,7 +355,7 @@ export class ContextManager {
   ): string {
     const agents = agentResponses.map(r => r.agentId).join(', ');
     const actions = agentResponses.map(r => r.metadata.action).join(', ');
-    
+
     return `User intent: ${userInput.substring(0, 100)} → Agents: ${agents} → Actions: ${actions}`;
   }
 
@@ -363,14 +364,14 @@ export class ContextManager {
    */
   async cleanupOldContext(retentionDays: number = 30): Promise<void> {
     try {
-      this.logger.info('Cleaning up old context data', { retentionDays });
+      this.logger.info({ retentionDays }, 'Cleaning up old context data');
 
       await this.qdrantClient.cleanupOldContext(retentionDays);
 
       this.logger.info('Context cleanup completed');
 
     } catch (error) {
-      this.logger.error('Context cleanup failed', { error });
+      this.logger.error({ error: error?.message || error }, 'Context cleanup failed');
     }
   }
 }

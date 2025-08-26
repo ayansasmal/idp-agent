@@ -1,5 +1,5 @@
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
-import { pino, type Logger } from 'pino';
+import { createLogger, validateData, type Logger } from '@ai-idp/utils';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import * as k8s from '@kubernetes/client-node';
@@ -21,6 +21,8 @@ export interface InfrastructureAgentConfig {
     url: string;
     apiKey?: string;
     collectionName: string;
+    vectorSize?: number;
+    timeout?: number;
   };
   windmill?: {
     baseUrl: string;
@@ -36,7 +38,9 @@ const InfrastructureAgentConfigSchema = z.object({
   qdrant: z.object({
     url: z.string().url(),
     apiKey: z.string().optional(),
-    collectionName: z.string().default('infrastructure_context')
+    collectionName: z.string().default('infrastructure_context'),
+    vectorSize: z.number().default(1536),
+    timeout: z.number().default(30000)
   }).optional(),
   windmill: z.object({
     baseUrl: z.string().url(),
@@ -66,9 +70,16 @@ export class InfrastructureAgent {
   private capabilities: AgentCapabilities;
 
   constructor(config: InfrastructureAgentConfig, logger?: Logger) {
-    this.config = InfrastructureAgentConfigSchema.parse(config);
-    this.logger = logger?.child({ component: 'InfrastructureAgent' }) || 
-                  pino({ name: 'infrastructure-agent' });
+    this.config = validateData(
+      config,
+      InfrastructureAgentConfigSchema,
+      { service: 'infrastructure-agent', operation: 'constructor' }
+    );
+    this.logger = logger ? (logger.child ? logger.child({ component: 'InfrastructureAgent' }) as Logger : logger) : createLogger({
+      service: 'infrastructure-agent',
+      level: 'info',
+      environment: (process.env.NODE_ENV as any) || 'development'
+    });
 
     // Initialize sub-components
     this.k8sOperations = new KubernetesOperations(this.config, this.logger);
@@ -76,13 +87,8 @@ export class InfrastructureAgent {
 
     // Initialize Qdrant client if configured
     if (this.config.qdrant) {
-      const qdrantConfig = {
-        ...this.config.qdrant,
-        vectorSize: this.config.qdrant.vectorSize || 1536,
-        timeout: this.config.qdrant.timeout || 30000
-      };
       this.qdrantClient = new QdrantContextClient(
-        qdrantConfig,
+        this.config.qdrant,
         process.env.OPENAI_API_KEY || '',
         this.logger
       );

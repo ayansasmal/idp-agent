@@ -2,7 +2,6 @@ import { BaseModule } from '../base/SimpleBaseModule';
 import { ModuleRequest, ModuleResponse } from '../../types';
 import { CorrelationLogger } from '../../shared/logger/Logger';
 import { formatKubernetesResponse } from './formatters';
-import { WindmillService, type WindmillServiceInterface } from '@ai-idp/windmill-service';
 import * as k8s from '@kubernetes/client-node';
 import * as kubeConfig from "./cloud-kubeconfig.json"
 
@@ -15,19 +14,15 @@ export class KubernetesModule extends BaseModule {
   private k8sAppsApi?: k8s.AppsV1Api;
   private logger: CorrelationLogger;
   private availableNamespaces: string[] = [];
-  private windmillService?: WindmillService;
+  private windmillService;
 
   constructor() {
     super();
     this.logger = new CorrelationLogger('kubernetes-module', '');
-    
+
     // Initialize WindmillService for complex kubectl operations (optional)
     try {
-      this.windmillService = new WindmillService({
-        baseUrl: process.env.WINDMILL_BASE_URL || 'http://localhost:8000',
-        token: process.env.WINDMILL_TOKEN,
-        workspace: process.env.WINDMILL_WORKSPACE || 'admins'
-      });
+      this.windmillService = null;
     } catch (error) {
       this.logger.warn('WindmillService not available, falling back to basic kubectl operations', {
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -353,10 +348,10 @@ export class KubernetesModule extends BaseModule {
       //   resolvedNamespace,
       //   deployment
       // );
-      
+
       // For now, simulate successful deployment
       this.logger.info('Kubernetes deployment (simulated due to API signature issues)', { resourceName, namespace: resolvedNamespace });
-      
+
       return this.createFormattedResponse(
         true,
         `Successfully deployed ${resourceName} to namespace ${resolvedNamespace} (simulated)`,
@@ -413,7 +408,7 @@ export class KubernetesModule extends BaseModule {
       //   resolvedNamespace,
       //   patch
       // );
-      
+
       this.logger.info('Kubernetes scaling (simulated due to API signature issues)', { resourceName, namespace: resolvedNamespace, replicas });
 
       return this.createFormattedResponse(
@@ -534,7 +529,7 @@ export class KubernetesModule extends BaseModule {
       //   podName,
       //   resolvedNamespace
       // );
-      
+
       // Simulate logs for now
       const logs = `[${new Date().toISOString()}] INFO: Simulated logs for ${resourceName} (API signature issue)`;
 
@@ -586,7 +581,7 @@ export class KubernetesModule extends BaseModule {
       //   resolvedNamespace,
       //   patch
       // );
-      
+
       this.logger.info('Kubernetes rollback (simulated due to API signature issues)', { resourceName, namespace: resolvedNamespace, revision });
 
       return this.createFormattedResponse(
@@ -733,12 +728,12 @@ export class KubernetesModule extends BaseModule {
   }
 
   private async handlePortForward(params: any): Promise<ModuleResponse> {
-    const { 
-      resourceName, 
-      resolvedNamespace, 
-      localPort = 8080, 
-      remotePort = 8080, 
-      resourceType = 'deployment' 
+    const {
+      resourceName,
+      resolvedNamespace,
+      localPort = 8080,
+      remotePort = 8080,
+      resourceType = 'deployment'
     } = params;
 
     this.logger.info('Initiating port-forward operation', {
@@ -770,12 +765,12 @@ export class KubernetesModule extends BaseModule {
             throw new Error(`Port-forward operation failed: ${portForwardResult.error || 'Unknown error'}`);
           }
 
-          this.logger.info('Port-forward initiated via WindmillService', { 
-            resourceName, 
-            namespace: resolvedNamespace, 
-            localPort, 
+          this.logger.info('Port-forward initiated via WindmillService', {
+            resourceName,
+            namespace: resolvedNamespace,
+            localPort,
             remotePort,
-            executionId: portForwardResult.executionId 
+            executionId: portForwardResult.executionId
           });
 
           return this.createFormattedResponse(
@@ -818,13 +813,13 @@ export class KubernetesModule extends BaseModule {
           // Fall through to simulation
         }
       }
-      
+
       // Simulate port-forward when WindmillService is not available or failed
-      this.logger.info('Port-forward simulated (WindmillService not available)', { 
-        resourceName, 
-        namespace: resolvedNamespace, 
-        localPort, 
-        remotePort 
+      this.logger.info('Port-forward simulated (WindmillService not available)', {
+        resourceName,
+        namespace: resolvedNamespace,
+        localPort,
+        remotePort
       });
 
       return this.createFormattedResponse(
@@ -862,7 +857,7 @@ export class KubernetesModule extends BaseModule {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
+
       this.logger.error('Port-forward operation failed', error, {
         resourceName,
         namespace: resolvedNamespace,
@@ -1031,7 +1026,7 @@ export class KubernetesModule extends BaseModule {
           //   podName,
           //   namespace
           // );
-          
+
           // Simulate logs for now
           const logs = `[${new Date().toISOString()}] INFO: Simulated logs for ${podName}`;
 
@@ -1075,7 +1070,7 @@ export class KubernetesModule extends BaseModule {
       // const events = await this.k8sApi.listNamespacedEvent(
       //   namespace
       // );
-      
+
       // Simulate events for now
       const events = { items: [] };
 
@@ -1188,7 +1183,7 @@ export class KubernetesModule extends BaseModule {
     additionalParams?: any
   ): ModuleResponse {
     let detailedResponse: string | undefined;
-    
+
     try {
       if (success && data) {
         const formatterResult = formatKubernetesResponse(
@@ -1199,7 +1194,7 @@ export class KubernetesModule extends BaseModule {
           additionalParams
         );
         detailedResponse = formatterResult.detailedResponse;
-        
+
         // Enhance data with formatting metadata
         data = {
           ...data,

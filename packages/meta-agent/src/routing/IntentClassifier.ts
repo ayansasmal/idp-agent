@@ -1,7 +1,7 @@
 import { Anthropic } from '@anthropic-ai/sdk';
 import { OpenAI } from 'openai';
 import { z } from 'zod';
-import { Logger } from 'pino';
+import { createLogger, Logger } from '@ai-idp/utils';
 import type {
   AgentIntent,
   ConversationContext,
@@ -13,7 +13,7 @@ const IntentSchema = z.object({
   agent: z.enum(['infrastructure', 'security', 'workflow', 'observability', 'cicd']),
   action: z.string(),
   confidence: z.number().min(0).max(1),
-  parameters: z.record(z.any()),
+  parameters: z.record(z.string(), z.any()),
   reasoning: z.string()
 });
 
@@ -33,7 +33,11 @@ export class IntentClassifier {
   constructor(anthropic?: Anthropic, openai?: OpenAI, logger?: Logger) {
     this.anthropic = anthropic;
     this.openai = openai;
-    this.logger = logger?.child({ component: 'IntentClassifier' }) || console as any;
+    this.logger = logger ? logger.child({ component: 'IntentClassifier' }) : createLogger({
+      service: 'meta-agent-intent-classifier',
+      level: 'info',
+      environment: (process.env.NODE_ENV as any) || 'development'
+    });
   }
 
   /**
@@ -44,11 +48,11 @@ export class IntentClassifier {
     context: ConversationContext,
     relevantContext?: VectorSearchResult[]
   ): Promise<AgentIntent> {
-    this.logger.info('Classifying user intent', {
+    this.logger.info({
       input: userInput.substring(0, 100),
       conversationId: context.conversationId,
       contextItems: relevantContext?.length || 0
-    });
+    }, 'Classifying user intent');
 
     try {
       // Build classification prompt with context
@@ -75,21 +79,21 @@ export class IntentClassifier {
         context: relevantContext?.map(r => r.id) || []
       };
 
-      this.logger.info('Intent classified successfully', {
+      this.logger.info({
         agent: intent.agent,
         action: intent.action,
         confidence: intent.confidence,
         parameters: Object.keys(intent.parameters),
         reasoning: parsedIntent.reasoning
-      });
+      }, 'Intent classified successfully');
 
       return intent;
 
     } catch (error) {
-      this.logger.error('Intent classification failed', {
+      this.logger.error({
         error: error.message,
         userInput: userInput.substring(0, 100)
-      });
+      }, 'Intent classification failed');
 
       // Return fallback intent
       return {

@@ -1,4 +1,4 @@
-import { Logger } from 'pino';
+import type { Logger } from '@ai-idp/utils';
 import * as yaml from 'js-yaml';
 import type { InfrastructureAgentConfig } from '../agent/InfrastructureAgent';
 
@@ -26,22 +26,22 @@ export class CloudOperations {
    */
   async initialize(): Promise<void> {
     try {
-      this.logger.info('Initializing Cloud Operations');
+      this.logger.info({}, 'Initializing Cloud Operations');
 
       // Check if Crossplane is available in the cluster
       // In a real implementation, this would check for Crossplane CRDs
       this.crossplaneAvailable = await this.checkCrossplaneAvailability();
 
       if (this.crossplaneAvailable) {
-        this.logger.info('Crossplane detected - cloud provisioning enabled');
+        this.logger.info({}, 'Crossplane detected - cloud provisioning enabled');
       } else {
-        this.logger.info('Crossplane not available - cloud operations will be simulated');
+        this.logger.info({}, 'Crossplane not available - cloud operations will be simulated');
       }
 
-      this.logger.info('Cloud operations initialized successfully');
+      this.logger.info({}, 'Cloud operations initialized successfully');
 
     } catch (error) {
-      this.logger.error('Failed to initialize Cloud Operations', { error });
+      this.logger.error({ error }, 'Failed to initialize Cloud Operations');
       // Don't throw - allow agent to work without cloud operations
     }
   }
@@ -57,12 +57,12 @@ export class CloudOperations {
   }): Promise<any> {
     const { databaseType, name, size, environment } = params;
 
-    this.logger.info('Provisioning database', {
+    this.logger.info({
       databaseType,
       name,
       size,
       environment
-    });
+    }, 'Provisioning database');
 
     if (!this.crossplaneAvailable) {
       return this.simulateDatabaseProvisioning(params);
@@ -109,7 +109,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error('Database provisioning failed', { error, params });
+      this.logger.error({ error, params }, 'Database provisioning failed');
       throw error;
     }
   }
@@ -125,12 +125,12 @@ export class CloudOperations {
   }): Promise<any> {
     const { storageType, name, size, environment } = params;
 
-    this.logger.info('Creating cloud storage', {
+    this.logger.info({
       storageType,
       name,
       size,
       environment
-    });
+    }, 'Creating cloud storage');
 
     if (!this.crossplaneAvailable) {
       return this.simulateStorageCreation(params);
@@ -161,7 +161,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error('Storage creation failed', { error, params });
+      this.logger.error({ error, params }, 'Storage creation failed');
       throw error;
     }
   }
@@ -177,12 +177,12 @@ export class CloudOperations {
   }): Promise<any> {
     const { functionName, runtime, code, environment } = params;
 
-    this.logger.info('Deploying serverless function', {
+    this.logger.info({
       functionName,
       runtime,
       environment,
       codeSize: code.length
-    });
+    }, 'Deploying serverless function');
 
     if (!this.crossplaneAvailable) {
       return this.simulateFunctionDeployment(params);
@@ -211,7 +211,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error('Function deployment failed', { error, params });
+      this.logger.error({ error, params }, 'Function deployment failed');
       throw error;
     }
   }
@@ -227,12 +227,12 @@ export class CloudOperations {
   }): Promise<any> {
     const { secretName, secrets, namespace, environment } = params;
 
-    this.logger.info('Managing secrets', {
+    this.logger.info({
       secretName,
       secretCount: Object.keys(secrets).length,
       namespace,
       environment
-    });
+    }, 'Managing secrets');
 
     try {
       // Generate Kubernetes secret manifest
@@ -258,7 +258,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error('Secret management failed', { error, params });
+      this.logger.error({ error, params }, 'Secret management failed');
       throw error;
     }
   }
@@ -455,7 +455,7 @@ export class CloudOperations {
 
   // Simulation methods
   private simulateDatabaseProvisioning(params: any): any {
-    this.logger.info('Simulating database provisioning (Crossplane not available)', { params });
+    this.logger.info({ params }, 'Simulating database provisioning (Crossplane not available)');
     
     const connectionDetails = this.generateDatabaseConnectionDetails(
       params.databaseType,
@@ -477,7 +477,7 @@ export class CloudOperations {
   }
 
   private simulateStorageCreation(params: any): any {
-    this.logger.info('Simulating storage creation (Crossplane not available)', { params });
+    this.logger.info({ params }, 'Simulating storage creation (Crossplane not available)');
     
     return {
       success: true,
@@ -493,7 +493,7 @@ export class CloudOperations {
   }
 
   private simulateFunctionDeployment(params: any): any {
-    this.logger.info('Simulating function deployment (Crossplane not available)', { params });
+    this.logger.info({ params }, 'Simulating function deployment (Crossplane not available)');
     
     return {
       success: true,
