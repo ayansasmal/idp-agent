@@ -70,19 +70,33 @@ export class ResponseCoordinator {
       // Aggregate response data
       const responseData = this.aggregateResponseData(agentResponses);
 
-      // Create user response
+      // Extract standardized fields from successful agent responses
+      const successfulResponse = successfulResponses[0]; // Use first successful response
+      const approvalId = successfulResponse?.metadata?.approvalId;
+      const confidence = successfulResponse?.metadata?.confidence;
+      const riskLevel = successfulResponse?.metadata?.riskLevel;
+
+      // Create user response with standardized fields
       const userResponse: UserResponse = {
         success: overallSuccess,
         message,
         detailedResponse: detailedResponse || undefined,
         data: responseData,
+        // Top-level standardized fields for web app compatibility
+        approvalId,
+        confidence,
+        riskLevel,
         metadata: {
           agentsInvolved: agentResponses.map(r => r.agentId),
           totalExecutionTime: agentResponses.reduce(
             (sum, r) => sum + r.metadata.executionTime,
             0
           ),
-          contextStored: true // Will be set by Meta-Agent
+          contextStored: true, // Will be set by Meta-Agent
+          // Standardized fields in metadata as well for backward compatibility
+          approvalId,
+          confidence,
+          riskLevel
         }
       };
 

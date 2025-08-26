@@ -12,6 +12,8 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@ai-idp/core": "file:../core",
+    "@ai-idp/infrastructure-agent": "file:../agents/infrastructure",
     "@ai-idp/mcp-client": "file:../shared/mcp-client",
     "@ai-idp/qdrant-client": "file:../shared/qdrant-client",
     "@ai-idp/types": "file:../shared/types",

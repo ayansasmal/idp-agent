@@ -12,6 +12,7 @@ import {
 import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
 import { MCPAgentClient } from '@ai-idp/mcp-client';
+import { InfrastructureAgent } from '@ai-idp/infrastructure-agent';
 import type {
   ConversationContext,
   AgentIntent,
@@ -24,6 +25,7 @@ import type {
 import { IntentClassifier } from '../routing/IntentClassifier';
 import { ContextManager } from '../context/ContextManager';
 import { ResponseCoordinator } from './ResponseCoordinator';
+import { ApprovalModule } from '@ai-idp/core';
 
 // Meta-Agent Configuration
 export interface MetaAgentConfig {
@@ -88,21 +90,6 @@ const MetaAgentConfigSchema = z.object({
  * - Response synthesis and user communication
  */
 export class MetaAgent {
-  /**
-   * Stub: Get approval module (for compatibility)
-   */
-  async getApprovalModule(): Promise<any> {
-    // TODO: Implement actual logic or proxy to core agent
-    return { success: false, message: 'getApprovalModule not implemented' };
-  }
-
-  /**
-   * Stub: Process approval action (for compatibility)
-   */
-  async processApprovalAction(action: string, id: string, reviewedBy: string, reviewNotes?: string): Promise<any> {
-    // TODO: Implement actual logic or proxy to core agent
-    return { success: false, message: 'processApprovalAction not implemented' };
-  }
   private config: z.infer<typeof MetaAgentConfigSchema>;
   private anthropic?: Anthropic;
   private openai?: OpenAI;
@@ -111,6 +98,7 @@ export class MetaAgent {
   private intentClassifier: IntentClassifier;
   private contextManager: ContextManager;
   private responseCoordinator: ResponseCoordinator;
+  private approvalModule: ApprovalModule;
   private logger: Logger;
   private isInitialized = false;
 
@@ -162,6 +150,7 @@ export class MetaAgent {
     this.intentClassifier = new IntentClassifier(this.anthropic, this.openai, this.logger);
     this.contextManager = new ContextManager(this.qdrantClient, this.logger);
     this.responseCoordinator = new ResponseCoordinator(this.logger);
+    this.approvalModule = new ApprovalModule();
   }
 
   /**
@@ -179,9 +168,17 @@ export class MetaAgent {
       await this.contextManager.initialize();
       this.logger.info({}, 'Context manager initialized');
 
+      // Initialize approval module
+      await this.approvalModule.initialize();
+      this.logger.info({}, 'Approval module initialized');
+
       // Validate AI providers
       await this.validateAIProviders();
       this.logger.info({}, 'AI providers validated');
+
+      // Register available focused agents
+      await this.registerAvailableAgents();
+      this.logger.info({}, 'Focused agents registered');
 
       this.isInitialized = true;
       this.logger.info({}, 'Meta-Agent initialized successfully');
@@ -213,6 +210,69 @@ export class MetaAgent {
     } catch (error: any) {
       this.logger.error({ error: error?.message || error }, `Failed to register focused agent: ${capabilities.agentId}`);
       throw error;
+    }
+  }
+
+  /**
+   * Automatically discover and register available focused agents
+   */
+  private async registerAvailableAgents(): Promise<void> {
+    this.logger.info({}, 'Discovering and registering available focused agents');
+
+    try {
+      // Register Infrastructure Agent
+      await this.registerInfrastructureAgent();
+
+      // TODO: Register other focused agents as they become available
+      // - Security Agent
+      // - Workflow Agent  
+      // - Observability Agent
+
+      this.logger.info({
+        totalAgents: this.registeredAgents.size,
+        agentIds: Array.from(this.registeredAgents.keys())
+      }, 'Successfully registered all available focused agents');
+
+    } catch (error: any) {
+      this.logger.error({ error: error?.message || error }, 'Failed to register available agents');
+      throw error;
+    }
+  }
+
+  /**
+   * Register Infrastructure Agent if available
+   */
+  private async registerInfrastructureAgent(): Promise<void> {
+    try {
+      // Create Infrastructure Agent instance with default config
+      const infrastructureConfig = {
+        agentId: 'infrastructure',
+        name: 'Infrastructure Agent',
+        kubeconfig: process.env.KUBECONFIG || '',
+        qdrant: this.config.qdrant ? {
+          url: this.config.qdrant.url,
+          apiKey: this.config.qdrant.apiKey,
+          collectionName: 'infrastructure_context',
+          vectorSize: this.config.qdrant.vectorSize || 1536,
+          timeout: this.config.qdrant.timeout || 30000
+        } : undefined
+      };
+
+      const infrastructureAgent = new InfrastructureAgent(infrastructureConfig);
+      const capabilities = infrastructureAgent.getCapabilities();
+
+      // Update endpoints for MCP communication
+      capabilities.endpoints = {
+        mcp: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
+        health: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/health`
+      };
+
+      await this.registerFocusedAgent(capabilities);
+      
+      this.logger.info({}, 'Infrastructure Agent registered successfully');
+    } catch (error: any) {
+      this.logger.warn({ error: error?.message || error }, 'Failed to register Infrastructure Agent - it may not be running');
+      // Don't throw error - allow Meta-Agent to continue without this agent
     }
   }
 
@@ -344,21 +404,27 @@ export class MetaAgent {
       throw new Error(`No tool found for action: ${intent.action} on agent: ${intent.agent}`);
     }
 
+    // Merge context into parameters for agent compatibility
+    const parametersWithContext = {
+      ...intent.parameters,
+      context: context
+    };
+
     this.logger.info({
       agent: intent.agent,
       tool: tool.name,
-      parameters: Object.keys(intent.parameters)
+      parameters: Object.keys(parametersWithContext)
     }, 'Routing to agent');
 
     // Call the focused agent via MCP
     const mcpResponse = await this.mcpClient.callTool(
       intent.agent,
       tool.name,
-      intent.parameters,
+      parametersWithContext,
       context
     );
 
-    // Convert MCP response to AgentResponse format
+    // Convert MCP response to AgentResponse format with standardized response structure
     const agentResponse: AgentResponse = {
       agentId: intent.agent,
       success: !mcpResponse.error,
@@ -369,7 +435,11 @@ export class MetaAgent {
         action: intent.action,
         hasDetailedResponse: !!mcpResponse.result?.detailedResponse,
         executionTime: mcpResponse.metadata.executionTime,
-        contextUsed: mcpResponse.metadata.contextUsed || []
+        contextUsed: mcpResponse.metadata.contextUsed || [],
+        // Standardized fields for web app compatibility
+        approvalId: mcpResponse.result?.approvalId || mcpResponse.result?.data?.approvalId,
+        confidence: mcpResponse.result?.confidence || mcpResponse.result?.data?.confidence,
+        riskLevel: mcpResponse.result?.riskLevel || mcpResponse.result?.data?.riskLevel
       }
     };
 
@@ -381,6 +451,11 @@ export class MetaAgent {
     // Add errors if present
     if (mcpResponse.error) {
       agentResponse.errors = [mcpResponse.error.message];
+    }
+
+    // Add warnings if present
+    if (mcpResponse.result?.warnings) {
+      agentResponse.warnings = mcpResponse.result.warnings;
     }
 
     return [agentResponse];
@@ -505,6 +580,100 @@ export class MetaAgent {
         healthyAgents: Object.values(healthStatus).filter(Boolean).length
       }
     };
+  }
+
+  /**
+   * Get approval module for web app compatibility
+   * Returns pending approvals and approval module status
+   */
+  async getApprovalModule(): Promise<any> {
+    try {
+      // Use the ApprovalModule's process method to get pending approvals
+      const request = {
+        requestId: uuidv4(),
+        module: 'approval',
+        action: 'list-pending',
+        parameters: {},
+        context: {
+          userId: 'meta-agent',
+          sessionId: 'meta-agent-session',
+          originalRequest: 'list-pending-approvals',
+          environment: 'production' as const,
+          permissions: ['approval:read'],
+          auditTrail: [],
+          timestamp: new Date().toISOString()
+        },
+        priority: 'normal' as const
+      };
+
+      const result = await this.approvalModule.process(request);
+      
+      return {
+        success: result.success,
+        message: result.message,
+        result: {
+          pendingApprovals: result.data?.approvals || []
+        }
+      };
+    } catch (error: any) {
+      this.logger.error({ error: error.message }, 'Failed to get approval module');
+      return {
+        success: false,
+        message: `Failed to access approval module: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Process approval action for web app compatibility
+   * Handles approve/reject actions on approval requests
+   */
+  async processApprovalAction(action: string, id: string, reviewedBy: string, reviewNotes?: string): Promise<any> {
+    try {
+      // Map web app action to approval module action
+      const moduleAction = action === 'approve' ? 'approve' : 'reject';
+      
+      const request = {
+        requestId: uuidv4(),
+        module: 'approval',
+        action: moduleAction,
+        parameters: {
+          approvalId: id,
+          reviewedBy: reviewedBy,
+          reviewNotes: reviewNotes || '',
+          timestamp: new Date().toISOString()
+        },
+        context: {
+          userId: reviewedBy,
+          sessionId: `approval-${id}`,
+          originalRequest: `${action}-approval-${id}`,
+          environment: 'production' as const,
+          permissions: ['approval:write'],
+          auditTrail: [`${moduleAction}-${id}-${reviewedBy}-${new Date().toISOString()}`],
+          timestamp: new Date().toISOString()
+        },
+        priority: 'high' as const
+      };
+
+      const result = await this.approvalModule.process(request);
+      
+      return {
+        success: result.success,
+        message: result.message,
+        data: result.data
+      };
+    } catch (error: any) {
+      this.logger.error({ 
+        error: error.message, 
+        action, 
+        approvalId: id 
+      }, 'Failed to process approval action');
+      
+      return {
+        success: false,
+        message: `Failed to ${action} approval: ${error.message}`
+      };
+    }
   }
 
   /**
