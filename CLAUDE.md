@@ -537,6 +537,52 @@ npm run dev:standalone  # Web app with embedded core agent
 
 **Status**: ✅ **Complete** - Infrastructure Agent ready, Meta-Agent framework built, Utils library operational
 
+### ✅ Phase 3.2: Critical Integration Fixes (COMPLETE)
+**Goal**: Fix critical integration issues between web-app → meta-agent → focused agent flow
+
+**Problem Identified**: Static code analysis revealed 4 critical integration issues preventing proper multi-agent communication and response handling.
+
+**✅ Critical Fixes Implemented:**
+
+1. **✅ ApprovalModule Integration (Fixed)**
+   - **Problem**: MetaAgent had stub methods for `getApprovalModule()` and `processApprovalAction()` that web-app expected
+   - **Solution**: Added `@ai-idp/core` dependency and implemented proper ApprovalModule bridge methods
+   - **Files**: `MetaAgent.ts:512-592`, `package.json:15`
+   - **Result**: Web app can now access pending approvals and process approval actions through MetaAgent
+
+2. **✅ Parameter Context Passing (Fixed)**
+   - **Problem**: Context wasn't being passed correctly from MetaAgent to focused agents via MCP
+   - **Solution**: Modified `routeToAgents()` method to merge context into parameters before MCP calls
+   - **Files**: `MetaAgent.ts:339-343`
+   - **Result**: Infrastructure Agent now receives complete context for operations
+
+3. **✅ Response Format Standardization (Fixed)**
+   - **Problem**: Different response formats across agent boundaries caused UI inconsistencies
+   - **Solution**: Added standardized metadata fields (`approvalId`, `confidence`, `riskLevel`) to all response interfaces
+   - **Files**: `AgentResponse` interface in `types/index.ts:41-44`, `MetaAgent.ts:371-375`, `ResponseCoordinator.ts:73-100`
+   - **Result**: Consistent response format across all agent boundaries for web app compatibility
+
+4. **✅ Agent Registration Mechanism (Fixed)**
+   - **Problem**: MetaAgent had no agents registered to route requests to
+   - **Solution**: Implemented automatic agent discovery and registration during initialization
+   - **Files**: `MetaAgent.ts:179-277`, added `@ai-idp/infrastructure-agent` dependency
+   - **Result**: Infrastructure Agent automatically registers on MetaAgent startup
+
+**✅ Integration Flow Validation:**
+- ✅ **Web App → MetaAgent**: API calls work with proper request/response formats
+- ✅ **MetaAgent → Infrastructure Agent**: MCP communication with context passing
+- ✅ **Response Aggregation**: Standardized response format across all boundaries
+- ✅ **Agent Registration**: Automatic discovery and registration of available agents
+
+**Technical Achievements:**
+- **Zero Breaking Changes**: All fixes maintain backward compatibility
+- **Type Safety**: Enhanced TypeScript interfaces with proper validation
+- **Graceful Degradation**: MetaAgent continues if some agents are unavailable  
+- **Comprehensive Logging**: Full request tracing across agent boundaries
+- **Production Ready**: All critical integration paths validated and operational
+
+**Status**: ✅ **Complete** - All 4 critical integration issues resolved, multi-agent architecture fully operational
+
 **Phase 3.3: Remaining Focused Agents**
 - Extract SafetyModule → Security Agent MCP server
 - Extract ApprovalModule → Workflow Agent MCP server  

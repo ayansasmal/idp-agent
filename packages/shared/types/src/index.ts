@@ -37,6 +37,10 @@ export interface AgentResponse {
     hasDetailedResponse: boolean;
     executionTime: number;
     contextUsed: string[];
+    // Standardized fields for web app compatibility
+    approvalId?: string;
+    confidence?: number;
+    riskLevel?: string;
   };
   errors?: string[];
   warnings?: string[];
