@@ -87,6 +87,14 @@ This is an **AI-Powered Integrated Developer Platform (IDP)** that uses conversa
 - **Async Messaging**: Event-driven communication with message queuing
 - **Load Balancing**: Intelligent request distribution across agent instances
 
+#### Shared Utilities Layer (@ai-idp/utils)
+- **HTTP Client Factory**: Pre-configured axios with interceptors, retry logic, and logging
+- **Logging Utilities**: Consistent Pino configuration with structured logging and context
+- **Error Handling**: Standardized error classes with proper classification and retry detection
+- **Validation Helpers**: Zod integration with common schemas and environment variable handling
+- **Retry Logic**: Configurable retry strategies with exponential backoff and jitter
+- **Configuration Management**: Type-safe environment variable loading with schema validation
+
 #### AI Core (LLM-Agnostic)
 - **Meta-Agent LLM**: Anthropic Claude for orchestration and routing decisions
 - **Focused Agent LLMs**: Specialized models per domain (infrastructure, security, etc.)
@@ -148,6 +156,7 @@ interface ModuleResponse {
   "vector-db": "@qdrant/js-client-rest, openai (embeddings)",
   "slack": "@slack/bolt",
   "database": "prisma, postgresql", 
+  "utilities": "@ai-idp/utils (axios, pino, zod)",
   "validation": "zod",
   "testing": "vitest",
   "monitoring": "prom-client, pino"
@@ -172,10 +181,10 @@ ai-idp/
 │   │   ├── workflow/            # Workflow Agent (MCP Server)
 │   │   └── observability/       # Observability Agent (MCP Server)
 │   ├── shared/                  # 📚 Shared Libraries
-│   │   ├── mcp-client/          # MCP client SDK
+│   │   ├── mcp-client/          # MCP client SDK (uses @ai-idp/utils)
 │   │   ├── qdrant-client/       # Qdrant vector database client
 │   │   ├── types/               # Shared TypeScript definitions
-│   │   └── utils/               # Common utilities
+│   │   └── utils/               # ⚡ Common utilities (HTTP, logging, errors, validation)
 │   ├── web-app/                 # 🌐 Next.js Web Interface
 │   │   ├── src/app/             # App Router pages & API routes
 │   │   ├── src/components/      # React components (Chat, Approvals)
@@ -484,6 +493,7 @@ npm run dev:standalone  # Web app with embedded core agent
 - ✅ **@ai-idp/types**: Complete TypeScript definitions for multi-agent system
 - ✅ **@ai-idp/qdrant-client**: Vector database integration with OpenAI embeddings  
 - ✅ **@ai-idp/mcp-client**: Model Context Protocol for agent communication
+- ✅ **@ai-idp/utils**: Comprehensive utility library for HTTP, logging, errors, validation, retry, config
 
 **✅ Meta-Agent Framework:**
 - ✅ **Intent Classification**: AI-powered routing using Anthropic Claude/OpenAI
@@ -495,8 +505,37 @@ npm run dev:standalone  # Web app with embedded core agent
 - ✅ **Clean Architecture**: Focused components with clear separation of concerns
 - ✅ **Documentation**: Updated for multi-agent architecture
 
-**Status**: ✅ **Complete** - Infrastructure Agent ready, Meta-Agent framework built, ready for integration
-- Maintain rich response formatting and approval workflows
+### ✅ Phase 3.2: Shared Utilities Library (COMPLETE)
+**Goal**: Create comprehensive shared utility library to eliminate code duplication across agents
+
+**Problem Solved:**
+- **Code Duplication**: HTTP configuration, logging setup, validation patterns repeated across services
+- **Inconsistent Behavior**: Different retry logic, error handling, and logging formats per service
+- **Maintenance Overhead**: Updates to common patterns required changes in multiple places
+
+**Solution Implemented:**
+- **@ai-idp/utils Library**: Comprehensive utility package with 6 core modules
+- **HTTP Client Factory**: Pre-configured axios with interceptors, retry logic, request tracking
+- **Logging Utilities**: Consistent Pino configuration with service context and performance tracking
+- **Error Handling**: Structured error classes with proper classification and retry detection
+- **Validation Helpers**: Zod integration with common schemas and environment variable handling
+- **Retry Logic**: Configurable strategies with exponential backoff, jitter, and predicate functions
+- **Configuration Management**: Type-safe environment variable loading with schema validation
+
+**Technical Achievements:**
+- **MCP Client Migration**: Reduced from 535 to 411 lines (24% reduction) while adding functionality
+- **Consistent Architecture**: All future agents get best practices automatically
+- **Enhanced Observability**: Request IDs, structured logging, performance metrics
+- **Type Safety**: Full TypeScript support with schema-based validation
+
+**Key Benefits:**
+- ✅ **Consistency**: All agents use identical HTTP, logging, and error patterns
+- ✅ **Maintainability**: Update core logic once, affects entire system
+- ✅ **Developer Experience**: New agents bootstrap with proven utilities
+- ✅ **Observability**: Consistent logging and error formats system-wide
+- ✅ **Testing**: Mock utilities once, works everywhere
+
+**Status**: ✅ **Complete** - Infrastructure Agent ready, Meta-Agent framework built, Utils library operational
 
 **Phase 3.3: Remaining Focused Agents**
 - Extract SafetyModule → Security Agent MCP server

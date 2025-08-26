@@ -1,8 +1,18 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { z } from 'zod';
-import { Logger } from 'pino';
+import { 
+  createHttpClient, 
+  createLogger,
+  withRetry,
+  validateData,
+  configSchemas,
+  ServiceError,
+  ErrorCode,
+  type HttpClientConfig,
+  type ServiceLoggerConfig
+} from '@ai-idp/utils';
+import type { Logger } from 'pino';
 import type {
   MCPRequest,
   MCPResponse,
@@ -11,14 +21,6 @@ import type {
   MCPConfig,
   ConversationContext
 } from '@ai-idp/types';
-
-// MCP Configuration Schema
-const MCPConfigSchema = z.object({
-  serverPort: z.number().default(3001),
-  clientTimeout: z.number().default(30000),
-  maxRetries: z.number().default(3),
-  retryDelay: z.number().default(1000)
-});
 
 // Agent Registry Entry
 interface AgentRegistryEntry {
@@ -31,12 +33,35 @@ interface AgentRegistryEntry {
 
 export class MCPAgentClient {
   private agentRegistry: Map<string, AgentRegistryEntry> = new Map();
-  private config: z.infer<typeof MCPConfigSchema>;
+  private config: MCPConfig;
   private logger: Logger;
+  private httpClient: ReturnType<typeof createHttpClient>;
 
-  constructor(config: MCPConfig, logger: Logger) {
-    this.config = MCPConfigSchema.parse(config);
-    this.logger = logger;
+  constructor(config: MCPConfig, loggerConfig?: Partial<ServiceLoggerConfig>) {
+    // Validate configuration using utils
+    this.config = validateData(
+      config, 
+      configSchemas.mcp, 
+      { service: 'mcp-client', operation: 'constructor' }
+    );
+    
+    // Create logger using utils
+    this.logger = createLogger({
+      service: 'mcp-client',
+      level: 'info',
+      environment: (process.env.NODE_ENV as any) || 'development',
+      ...loggerConfig
+    });
+    
+    // Create HTTP client using utils
+    const httpConfig: HttpClientConfig = {
+      timeout: this.config.clientTimeout,
+      maxRetries: this.config.maxRetries,
+      retryDelay: this.config.retryDelay,
+      userAgent: 'AI-IDP MCP-Client/1.0.0'
+    };
+    
+    this.httpClient = createHttpClient(httpConfig, this.logger);
   }
 
   /**
@@ -81,8 +106,15 @@ export class MCPAgentClient {
 
       this.logger.info({ agentId: capabilities.agentId }, 'Successfully registered agent');
     } catch (error) {
-      this.logger.error({ error }, `Failed to register agent: ${capabilities.agentId}`);
-      throw error;
+      const serviceError = new ServiceError(
+        `Failed to register agent: ${capabilities.agentId}`,
+        ErrorCode.DEPENDENCY_FAILED,
+        { service: 'mcp-client', operation: 'registerAgent' },
+        { cause: error as Error }
+      );
+      
+      this.logger.error({ error: serviceError }, serviceError.message);
+      throw serviceError;
     }
   }
 
@@ -105,8 +137,15 @@ export class MCPAgentClient {
 
       this.logger.info({ agentId }, 'Unregistered agent');
     } catch (error) {
-      this.logger.error({ error }, `Failed to unregister agent: ${agentId}`);
-      throw error;
+      const serviceError = new ServiceError(
+        `Failed to unregister agent: ${agentId}`,
+        ErrorCode.INTERNAL_ERROR,
+        { service: 'mcp-client', operation: 'unregisterAgent' },
+        { cause: error as Error }
+      );
+      
+      this.logger.error({ error: serviceError }, serviceError.message);
+      throw serviceError;
     }
   }
 
@@ -124,17 +163,29 @@ export class MCPAgentClient {
     try {
       const entry = this.agentRegistry.get(agentId);
       if (!entry) {
-        throw new Error(`Agent not registered: ${agentId}`);
+        throw new ServiceError(
+          `Agent not registered: ${agentId}`,
+          ErrorCode.NOT_FOUND,
+          { service: 'mcp-client', operation: 'callTool' }
+        );
       }
 
       if (!entry.healthy) {
-        throw new Error(`Agent is unhealthy: ${agentId}`);
+        throw new ServiceError(
+          `Agent is unhealthy: ${agentId}`,
+          ErrorCode.SERVICE_UNAVAILABLE,
+          { service: 'mcp-client', operation: 'callTool' }
+        );
       }
 
       // Check if tool exists
       const tool = entry.capabilities.tools.find(t => t.name === toolName);
       if (!tool) {
-        throw new Error(`Tool not found: ${toolName} on agent ${agentId}`);
+        throw new ServiceError(
+          `Tool not found: ${toolName} on agent ${agentId}`,
+          ErrorCode.NOT_FOUND,
+          { service: 'mcp-client', operation: 'callTool' }
+        );
       }
 
       this.logger.info({
@@ -155,13 +206,20 @@ export class MCPAgentClient {
         context
       };
 
-      // Make the MCP call with retry logic
-      const result = await this.callWithRetry(
+      // Make the MCP call with retry logic from utils
+      const result = await withRetry(
         () => entry.client.callTool({
           name: toolName,
           arguments: parameters
         }),
-        this.config.maxRetries
+        {
+          config: {
+            maxAttempts: this.config.maxRetries,
+            baseDelayMs: this.config.retryDelay
+          },
+          logger: this.logger,
+          operationName: `callTool-${toolName}`
+        }
       );
 
       const executionTime = Date.now() - startTime;
@@ -188,14 +246,14 @@ export class MCPAgentClient {
 
       this.logger.error({
         agentId,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         executionTime
       }, `Tool call failed: ${toolName}`);
 
       return {
         error: {
           code: -1,
-          message: error.message,
+          message: error instanceof Error ? error.message : String(error),
           data: { agentId, toolName }
         },
         id: `${context.conversationId}_${Date.now()}`,
@@ -238,7 +296,7 @@ export class MCPAgentClient {
   }
 
   /**
-   * Health check for all registered agents
+   * Health check for all registered agents using utils HTTP client
    */
   async healthCheckAll(): Promise<Record<string, boolean>> {
     const healthStatus: Record<string, boolean> = {};
@@ -246,12 +304,17 @@ export class MCPAgentClient {
     const healthPromises = Array.from(this.agentRegistry.entries()).map(
       async ([agentId, entry]) => {
         try {
-          // Simple ping to health endpoint
-          const response = await fetch(entry.capabilities.endpoints.health, {
-            method: 'GET'
-          });
+          // Health check using utils HTTP client with automatic retry
+          const response = await withRetry(
+            () => this.httpClient.get(entry.capabilities.endpoints.health),
+            {
+              config: { maxAttempts: 2, baseDelayMs: 500 },
+              logger: this.logger,
+              operationName: `healthCheck-${agentId}`
+            }
+          );
 
-          const healthy = response.ok;
+          const healthy = response.status >= 200 && response.status < 300;
           entry.healthy = healthy;
           entry.lastHealthCheck = new Date();
 
@@ -268,7 +331,9 @@ export class MCPAgentClient {
           entry.lastHealthCheck = new Date();
           healthStatus[agentId] = false;
 
-          this.logger.error({ error }, `Agent health check failed: ${agentId}`);
+          this.logger.error({ 
+            error: error instanceof Error ? error.message : String(error) 
+          }, `Agent health check failed: ${agentId}`);
         }
       }
     );
@@ -315,7 +380,9 @@ export class MCPAgentClient {
             results[agentId] = false; // Agent doesn't support notifications
           }
         } catch (error) {
-          this.logger.error({ error }, `Broadcast failed to agent: ${agentId}`);
+          this.logger.error({ 
+            error: error instanceof Error ? error.message : String(error) 
+          }, `Broadcast failed to agent: ${agentId}`);
           results[agentId] = false;
         }
       });
@@ -323,39 +390,6 @@ export class MCPAgentClient {
     await Promise.all(broadcastPromises);
 
     return results;
-  }
-
-  /**
-   * Retry logic for MCP calls
-   */
-  private async callWithRetry<T>(
-    operation: () => Promise<T>,
-    maxRetries: number
-  ): Promise<T> {
-    let lastError: Error;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await operation();
-      } catch (error) {
-        lastError = error as Error;
-
-        if (attempt === maxRetries) {
-          break;
-        }
-
-        // Exponential backoff
-        const delay = this.config.retryDelay * Math.pow(2, attempt - 1);
-        await new Promise(resolve => setTimeout(resolve, delay));
-
-        this.logger.warn({
-          error: error.message,
-          nextRetryIn: delay
-        }, `MCP call failed, retrying (${attempt}/${maxRetries})`);
-      }
-    }
-
-    throw lastError!;
   }
 
   /**
