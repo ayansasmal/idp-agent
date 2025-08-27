@@ -628,7 +628,62 @@ npm run docs:watch  # Auto-regenerate on changes
 
 **Status**: ✅ **Complete** - All packages documented, TypeDoc integrated, developer experience transformed
 
-**Phase 3.4: Remaining Focused Agents**
+### ✅ Phase 3.4: Package Cleanup and Architecture Consolidation (COMPLETE)
+**Goal**: Clean up legacy packages and streamline the multi-agent architecture
+
+**Problem Solved:**
+- **Legacy Package Dependencies**: Old monolithic core package still referenced but unused
+- **Unused Packages**: CLI, Slack app, and Windmill service packages not part of current architecture
+- **Documentation Redundancy**: Multiple similar documentation files causing confusion
+- **Build Complexity**: Unused dependencies and outdated package references
+
+**Solution Implemented:**
+- **Package Removal**: Safely removed 4 unused packages with backups created
+- **Dependency Cleanup**: Updated MetaAgent to remove @ai-idp/core dependency
+- **Documentation Consolidation**: Removed redundant documentation files
+- **Architecture Streamlining**: Focused on core multi-agent components only
+
+**Packages Removed (Backed up to /tmp/ai-idp-backup/):**
+- ✅ **packages/core**: Legacy monolithic agent system (replaced by Meta-Agent)
+- ✅ **packages/cli**: CLI interface (not actively developed)
+- ✅ **packages/slack-app**: Slack integration (not in current build)
+- ✅ **packages/windmill-service**: Legacy Windmill workflows (replaced by direct K8s ops)
+
+**Documentation Files Cleaned:**
+- ✅ **TYPEDOC_SETUP_COMPLETE.md**: Consolidated into COMPREHENSIVE_JSDOC_SUMMARY.md
+- ✅ **CANVA-PRESENTATION-INPUTS.md**: Legacy presentation materials
+- ✅ **DEPENDENCY_VERSIONS.md**: Outdated dependency tracking
+- ✅ **README-MULTI-AGENT.md**: Replaced by updated CLAUDE.md sections
+
+**Final Clean Architecture:**
+```
+packages/
+├── meta-agent/              # 🧠 Meta-Agent orchestrator
+├── agents/infrastructure/   # 🔧 Infrastructure focused agent
+├── shared/                  # 📚 Shared libraries
+│   ├── types/              # TypeScript definitions
+│   ├── utils/              # Common utilities
+│   ├── mcp-client/         # MCP protocol client
+│   └── qdrant-client/      # Vector database client
+└── web-app/                # 🌐 Next.js web interface
+```
+
+**Key Benefits:**
+- ✅ **Simplified Build**: Faster builds with only active packages
+- ✅ **Clear Dependencies**: No unused or circular dependencies
+- ✅ **Streamlined Docs**: Single comprehensive documentation source
+- ✅ **Focused Architecture**: Clean multi-agent system without legacy components
+- ✅ **Safe Cleanup**: All removed packages backed up for recovery if needed
+
+**Build Verification:**
+- ✅ All remaining packages build successfully
+- ✅ Web application compiles and generates correctly
+- ✅ No broken dependencies or missing imports
+- ✅ TypeScript compilation passes for all components
+
+**Status**: ✅ **Complete** - Architecture streamlined, legacy packages removed, build verified
+
+**Phase 3.5: Remaining Focused Agents**
 - Extract SafetyModule → Security Agent MCP server
 - Extract ApprovalModule → Workflow Agent MCP server  
 - Extract AuditModule → Observability Agent MCP server
