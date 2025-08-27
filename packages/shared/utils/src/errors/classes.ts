@@ -5,6 +5,58 @@ import {
   ErrorCode 
 } from './types.js';
 
+/**
+ * Base service error class for structured error handling across AI-IDP services
+ * 
+ * Provides consistent error structure with contextual information, retry detection,
+ * and JSON serialization for distributed logging and debugging. All service errors
+ * inherit from this base class to ensure uniform error handling patterns.
+ * 
+ * **Features:**
+ * - Structured error codes for programmatic error handling
+ * - Service and operation context for debugging
+ * - Automatic retry detection based on error type
+ * - JSON serialization for logging and network transmission
+ * - Stack trace preservation for debugging
+ * 
+ * @class ServiceError
+ * @extends Error
+ * @since 1.0.0
+ * 
+ * @example Basic Service Error
+ * ```typescript
+ * throw new ServiceError(
+ *   'Database connection failed',
+ *   ErrorCode.DEPENDENCY_FAILED,
+ *   {
+ *     service: 'user-service',
+ *     operation: 'getUserById',
+ *     requestId: 'req-123'
+ *   },
+ *   {
+ *     cause: originalError,
+ *     isRetryable: true
+ *   }
+ * );
+ * ```
+ * 
+ * @example Error with Context
+ * ```typescript
+ * throw new ServiceError(
+ *   'Kubernetes deployment failed',
+ *   ErrorCode.EXTERNAL_SERVICE_ERROR,
+ *   {
+ *     service: 'infrastructure-agent',
+ *     operation: 'deployApplication',
+ *     metadata: {
+ *       namespace: 'production',
+ *       deploymentName: 'nginx-app',
+ *       userId: 'user-456'
+ *     }
+ *   }
+ * );
+ * ```
+ */
 export class ServiceError extends Error {
   public readonly code: ErrorCode;
   public readonly context: ServiceErrorContext;

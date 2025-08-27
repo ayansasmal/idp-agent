@@ -16,8 +16,82 @@ import { Logger, CorrelationLogger } from '@/shared/logger/Logger';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Primary Agent - The main coordinator for all platform operations
- * Routes user requests to appropriate modules and coordinates responses
+ * Primary Agent - Main coordinator for AI-IDP platform operations
+ * 
+ * The Primary Agent serves as the central orchestrator in the AI-IDP system,
+ * responsible for processing user requests, routing them to appropriate modules,
+ * and coordinating responses. It integrates AI-powered intent classification,
+ * parameter validation, approval workflows, and multi-module communication.
+ * 
+ * **Core Responsibilities:**
+ * - **Request Processing**: Natural language user request interpretation
+ * - **Intent Classification**: AI-powered intent analysis and module routing
+ * - **Parameter Validation**: Intelligent parameter extraction and user prompting
+ * - **Module Coordination**: Communication with Kubernetes, Safety, Approval, and Audit modules
+ * - **Response Synthesis**: Structured response generation with rich content formatting
+ * - **Approval Management**: Integration with human-in-the-loop approval workflows
+ * - **Context Management**: Conversation context and history tracking
+ * 
+ * **AI Integration:**
+ * - LLM-agnostic AI core (Anthropic Claude primary, OpenAI fallback)
+ * - Structured function calling for reliable module communication
+ * - Parameter validation with intelligent user prompting for missing information
+ * - Risk assessment and approval requirement detection
+ * 
+ * @class PrimaryAgent
+ * @since 1.0.0
+ * @version 2.6.0 - Added comprehensive parameter validation system
+ * 
+ * @example Basic Usage
+ * ```typescript
+ * import { PrimaryAgent } from '@ai-idp/core';
+ * 
+ * const primaryAgent = new PrimaryAgent();
+ * await primaryAgent.initialize();
+ * 
+ * const response = await primaryAgent.processRequest(
+ *   'Deploy nginx with 3 replicas to staging',
+ *   {
+ *     userId: 'user-123',
+ *     sessionId: 'session-456',
+ *     originalRequest: 'Deploy nginx with 3 replicas to staging',
+ *     environment: 'staging',
+ *     permissions: ['deploy:staging'],
+ *     auditTrail: [],
+ *     timestamp: new Date().toISOString()
+ *   }
+ * );
+ * 
+ * console.log(response.message); // "✅ Successfully deployed nginx to staging"
+ * ```
+ * 
+ * @example Parameter Validation Flow
+ * ```typescript
+ * // Incomplete request
+ * const response = await primaryAgent.processRequest(
+ *   'deploy something',
+ *   context
+ * );
+ * 
+ * // Returns parameter validation prompt
+ * console.log(response.message); 
+ * // "I need some additional information to proceed with your request.
+ * //  **Container Image**: The container image to deploy
+ * //  Example: nginx:latest, myapp:v1.2.3"
+ * ```
+ * 
+ * @example Approval Workflow Integration
+ * ```typescript
+ * const response = await primaryAgent.processRequest(
+ *   'Deploy payment-service to production',
+ *   context
+ * );
+ * 
+ * if (response.approvalId) {
+ *   console.log(`Approval required: ${response.approvalId}`);
+ *   console.log(response.message); // "⏳ Approval required for high-risk production deployment"
+ * }
+ * ```
  */
 export class PrimaryAgent {
   private aiCore: AICore;
@@ -25,6 +99,15 @@ export class PrimaryAgent {
   private logger = new Logger('PrimaryAgent');
   private isInitialized = false;
 
+  /**
+   * Create a new Primary Agent instance
+   * 
+   * Initializes the AI core with configuration and sets up module communication
+   * layer. The agent is ready for initialization but requires calling initialize()
+   * before processing any requests.
+   * 
+   * @since 1.0.0
+   */
   constructor() {
     // Initialize AI Core with configuration
     this.aiCore = new AICore(config.getAIConfig());
@@ -33,7 +116,34 @@ export class PrimaryAgent {
 
   /**
    * Initialize the primary agent and all subsystems
-   */
+   * 
+   * Performs complete system initialization including AI core setup, provider validation,
+   * module communication layer initialization, and configuration validation. Must be
+   * called before the agent can process any user requests.
+   * 
+   * **Initialization Steps:**
+   * 1. Initialize and validate AI core with provider fallback
+   * 2. Set up module communication layer
+   * 3. Validate system configuration
+   * 4. Mark agent as ready for operation
+   * 
+   * @returns Promise resolving when initialization is complete
+   * @throws Error if AI providers are unavailable or configuration is invalid
+   * 
+   * @example
+   * ```typescript
+   * const primaryAgent = new PrimaryAgent();
+   * 
+   * try {
+   *   await primaryAgent.initialize();
+   *   console.log('Primary Agent ready for requests');
+   * } catch (error) {
+   *   console.error('Initialization failed:', error);
+   * }
+   * ```
+   * 
+   * @since 1.0.0
+   */"}
   async initialize(): Promise<void> {
     const timer = this.logger.startTimer('agent_initialization');
 
@@ -81,8 +191,85 @@ export class PrimaryAgent {
   }
 
   /**
-   * Process user request - main entry point for all interactions
-   */
+   * Process user request - main entry point for all AI-IDP interactions
+   * 
+   * This is the primary method for processing natural language user requests through
+   * the AI-IDP system. It handles intent classification, parameter validation, module
+   * routing, approval workflows, and response synthesis.
+   * 
+   * **Processing Flow:**
+   * 1. Intent analysis using AI to determine target module and action
+   * 2. Parameter validation with intelligent prompting for missing information
+   * 3. Approval requirement assessment for high-risk operations
+   * 4. Module execution with comprehensive error handling
+   * 5. Response synthesis with rich formatting and metadata
+   * 
+   * **Parameter Validation:**
+   * - Automatically extracts parameters from natural language input
+   * - Prompts users for missing mandatory parameters with examples
+   * - Validates parameter formats and constraints
+   * - Supports multi-turn conversations for parameter collection
+   * 
+   * **Approval Integration:**
+   * - Risk-based approval requirement detection
+   * - Automatic approval creation for high-risk operations
+   * - Execution halting when approval is required
+   * - Rich approval context with rollback plans and risk assessment
+   * 
+   * @param userInput - Natural language user request (max 10,000 characters)
+   * @param context - Request context with user identity, session, and permissions
+   * @returns Promise resolving to structured agent response
+   * 
+   * @example Complete Operation
+   * ```typescript
+   * const response = await primaryAgent.processRequest(
+   *   'Deploy nginx:latest with 3 replicas to staging namespace',
+   *   {
+   *     userId: 'developer-123',
+   *     sessionId: 'web-session-456',
+   *     originalRequest: 'Deploy nginx:latest with 3 replicas to staging namespace',
+   *     environment: 'staging',
+   *     permissions: ['deploy:staging', 'read:all'],
+   *     auditTrail: [],
+   *     timestamp: new Date().toISOString()
+   *   }
+   * );
+   * 
+   * // Successful deployment
+   * console.log(response.success); // true
+   * console.log(response.message); // "✅ Successfully deployed nginx to staging"
+   * console.log(response.detailedResponse); // Rich markdown with pod status
+   * ```
+   * 
+   * @example Parameter Validation Flow
+   * ```typescript
+   * const response = await primaryAgent.processRequest(
+   *   'scale api-gateway',
+   *   context
+   * );
+   * 
+   * // Missing replicas parameter
+   * console.log(response.success); // false
+   * console.log(response.message); 
+   * // "I need to know how many replicas. Example: 3, 5, 10"
+   * ```
+   * 
+   * @example Approval Required
+   * ```typescript
+   * const response = await primaryAgent.processRequest(
+   *   'Deploy payment-service to production',
+   *   context
+   * );
+   * 
+   * // High-risk operation requires approval
+   * console.log(response.success); // false
+   * console.log(response.approvalId); // "approval-abc123"
+   * console.log(response.message); // "⏳ Approval required for production deployment"
+   * ```
+   * 
+   * @since 1.0.0
+   * @version 2.6.0 - Added comprehensive parameter validation system
+   */"}
   async processRequest(
     userInput: string,
     context: RequestContext

@@ -7,13 +7,58 @@ import type {
 } from '@ai-idp/types';
 
 /**
- * Response Coordinator - Synthesizes responses from multiple agents
+ * Response Coordinator - Synthesizes responses from multiple focused agents
  * 
- * Responsibilities:
- * - Aggregate responses from multiple focused agents
- * - Format responses for user-friendly presentation
- * - Handle error scenarios and partial failures
- * - Maintain response consistency across agents
+ * The ResponseCoordinator is responsible for taking multiple agent responses
+ * and combining them into a cohesive, user-friendly response format. It handles:
+ * 
+ * - **Multi-agent aggregation**: Combines responses from Infrastructure, Security, 
+ *   Workflow, and Observability agents into unified output
+ * - **Response formatting**: Creates consistent message structure with detailed content
+ * - **Error handling**: Manages partial failures and provides meaningful error messages
+ * - **Metadata synthesis**: Aggregates execution times, agent involvement, and context
+ * - **Standardization**: Ensures all responses conform to UserResponse interface
+ * 
+ * The coordinator maintains response consistency regardless of how many agents
+ * are involved in processing a request, providing a single coherent interface
+ * for the web application and other consumers.
+ * 
+ * @class ResponseCoordinator
+ * @since 1.0.0
+ * @version 1.1.0
+ * 
+ * @example Basic Usage
+ * ```typescript
+ * const coordinator = new ResponseCoordinator(logger);
+ * 
+ * const agentResponses = [
+ *   infrastructureResponse, // From Infrastructure Agent
+ *   securityResponse       // From Security Agent  
+ * ];
+ * 
+ * const userResponse = await coordinator.synthesizeResponse(
+ *   agentResponses,
+ *   intent,
+ *   userInput
+ * );
+ * 
+ * // Result: Unified response with aggregated data and metadata
+ * console.log(userResponse.message);           // "✅ Deployment successful with security validation"
+ * console.log(userResponse.detailedResponse);  // Combined markdown from both agents
+ * console.log(userResponse.metadata.agentsInvolved); // ["infrastructure", "security"]
+ * ```
+ * 
+ * @example Error Handling
+ * ```typescript
+ * // When some agents fail and others succeed
+ * const mixedResponses = [
+ *   { success: true, agentId: "infrastructure", message: "Deployed successfully" },
+ *   { success: false, agentId: "security", message: "Security scan failed", errors: [...] }
+ * ];
+ * 
+ * const response = await coordinator.synthesizeResponse(mixedResponses, intent, userInput);
+ * // Result: Partial success response with clear error information
+ * ```
  */
 export class ResponseCoordinator {
   private logger: Logger;
@@ -27,7 +72,101 @@ export class ResponseCoordinator {
   }
 
   /**
-   * Synthesize responses from multiple agents into cohesive user response
+   * Synthesize responses from multiple focused agents into cohesive user response
+   * 
+   * This is the core method that takes responses from one or more focused agents
+   * and combines them into a single, coherent response for the user. The method:
+   * 
+   * 1. **Analyzes success/failure** across all agent responses
+   * 2. **Creates unified messaging** that summarizes the overall outcome  
+   * 3. **Combines detailed responses** into rich markdown content
+   * 4. **Aggregates structured data** from all participating agents
+   * 5. **Synthesizes metadata** including timing, agents involved, and context
+   * 6. **Extracts standardized fields** (approvals, confidence, risk) for UI integration
+   * 
+   * @param agentResponses - Array of responses from focused agents that processed the request
+   * @param agentResponses[].agentId - ID of the agent that generated this response
+   * @param agentResponses[].success - Whether this agent's operation succeeded
+   * @param agentResponses[].message - Agent's status message
+   * @param agentResponses[].detailedResponse - Rich content from the agent
+   * @param agentResponses[].data - Structured data from the agent
+   * @param agentResponses[].metadata - Agent execution metadata
+   * 
+   * @param intent - Original classified intent that determined agent routing
+   * @param intent.agent - Target agent identifier
+   * @param intent.action - Specific action to be performed
+   * @param intent.confidence - AI confidence in intent classification
+   * 
+   * @param userInput - Original user input for context and logging
+   * 
+   * @returns Promise resolving to unified UserResponse with:
+   *   - Aggregated success status across all agents
+   *   - Combined messaging and detailed content
+   *   - Merged structured data from all agents
+   *   - Comprehensive metadata with execution details
+   *   - Standardized fields for web app integration
+   * 
+   * @throws {Error} When response synthesis fails due to internal errors
+   * 
+   * @example Single Agent Response
+   * ```typescript
+   * const responses = [
+   *   {
+   *     agentId: "infrastructure", 
+   *     success: true,
+   *     message: "✅ Successfully deployed nginx",
+   *     detailedResponse: "## Deployment Status\n\n- Pods: 3/3 Running...",
+   *     data: { deployment: {...}, pods: [...] },
+   *     metadata: { executionTime: 2500, approvalId: null, confidence: 0.95 }
+   *   }
+   * ];
+   * 
+   * const result = await coordinator.synthesizeResponse(responses, intent, userInput);
+   * // Result: Clean single-agent response with all data preserved
+   * ```
+   * 
+   * @example Multi-Agent Response
+   * ```typescript
+   * const responses = [
+   *   {
+   *     agentId: "infrastructure",
+   *     success: true, 
+   *     message: "Deployed successfully",
+   *     detailedResponse: "## Infrastructure\n\n- Deployment: Ready...",
+   *     data: { deployment: {...} }
+   *   },
+   *   {
+   *     agentId: "security",
+   *     success: true,
+   *     message: "Security validation passed", 
+   *     detailedResponse: "## Security\n\n- Scan: Clean...",
+   *     data: { securityScan: {...} }
+   *   }
+   * ];
+   * 
+   * const result = await coordinator.synthesizeResponse(responses, intent, userInput);
+   * // Result: Combined response with unified messaging and merged data
+   * console.log(result.message); // "✅ Successfully deployed nginx with security validation"
+   * console.log(result.detailedResponse); // Combined markdown from both agents
+   * console.log(result.data); // { deployment: {...}, securityScan: {...} }
+   * console.log(result.metadata.agentsInvolved); // ["infrastructure", "security"]
+   * ```
+   * 
+   * @example Partial Failure Handling
+   * ```typescript
+   * const responses = [
+   *   { agentId: "infrastructure", success: true, message: "Deployed successfully" },
+   *   { agentId: "security", success: false, message: "Security scan failed", errors: ["Vulnerable dependencies"] }
+   * ];
+   * 
+   * const result = await coordinator.synthesizeResponse(responses, intent, userInput);
+   * // Result: Partial success with clear error reporting
+   * console.log(result.success); // false (overall failure due to security)
+   * console.log(result.message); // "⚠️ Deployment succeeded but security validation failed"
+   * ```
+   * 
+   * @since 1.0.0
+   * @version 1.1.0 - Added standardized field extraction and metadata synthesis
    */
   async synthesizeResponse(
     agentResponses: AgentResponse[],

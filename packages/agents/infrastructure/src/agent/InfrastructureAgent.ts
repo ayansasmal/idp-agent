@@ -2,8 +2,6 @@ import { QdrantContextClient } from '@ai-idp/qdrant-client';
 import { createLogger, validateData, type Logger } from '@ai-idp/utils';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import * as k8s from '@kubernetes/client-node';
-import * as yaml from 'js-yaml';
 import type {
   AgentCapabilities,
   ToolDefinition,
@@ -12,29 +10,65 @@ import type {
 import { KubernetesOperations } from '../kubernetes/KubernetesOperations';
 import { CloudOperations } from '../cloud/CloudOperations';
 
-// Infrastructure Agent Configuration
+/**
+ * Configuration interface for Infrastructure Agent
+ * 
+ * Defines all configuration options for the Infrastructure Agent including
+ * Kubernetes connection, Qdrant vector database, and optional Windmill
+ * integration for complex kubectl operations.
+ * 
+ * @interface InfrastructureAgentConfig
+ * @since 1.0.0
+ */
 export interface InfrastructureAgentConfig {
+  /** Unique agent identifier within the AI-IDP system */
   agentId: string;
+
+  /** Human-readable agent name */
   name: string;
+
+  /** Optional path to kubeconfig file for Kubernetes authentication */
   kubeconfig?: string;
+
+  /** Optional Qdrant vector database configuration for context storage */
   qdrant?: {
+    /** Qdrant cluster URL */
     url: string;
+    /** Qdrant API key for authentication */
     apiKey?: string;
+    /** Collection name for infrastructure context storage */
     collectionName: string;
+    /** Vector dimension size for embeddings */
     vectorSize?: number;
+    /** Request timeout in milliseconds */
     timeout?: number;
   };
+
+  /** Optional Windmill configuration for complex kubectl operations */
   windmill?: {
+    /** Windmill server base URL */
     baseUrl: string;
+    /** Authentication token for Windmill API */
     token?: string;
+    /** Windmill workspace identifier */
     workspace: string;
   };
 }
 
+/**
+ * Zod schema for Infrastructure Agent configuration validation
+ * 
+ * Provides type-safe validation and default values for all Infrastructure Agent
+ * configuration options, ensuring proper setup and preventing runtime errors.
+ */
 const InfrastructureAgentConfigSchema = z.object({
+  /** Agent identifier with default value */
   agentId: z.string().default('infrastructure'),
+  /** Agent display name with default value */
   name: z.string().default('Infrastructure Agent'),
+  /** Optional kubeconfig path for Kubernetes access */
   kubeconfig: z.string().optional(),
+  /** Optional Qdrant configuration with sensible defaults */
   qdrant: z.object({
     url: z.string().url(),
     apiKey: z.string().optional(),
@@ -42,6 +76,7 @@ const InfrastructureAgentConfigSchema = z.object({
     vectorSize: z.number().default(1536),
     timeout: z.number().default(30000)
   }).optional(),
+  /** Optional Windmill configuration with defaults */
   windmill: z.object({
     baseUrl: z.string().url(),
     token: z.string().optional(),
@@ -50,16 +85,79 @@ const InfrastructureAgentConfigSchema = z.object({
 });
 
 /**
- * Infrastructure Agent - Specialized agent for Kubernetes and Cloud operations
+ * Infrastructure Agent - Specialized focused agent for Kubernetes and cloud operations
  * 
- * Capabilities:
- * - Kubernetes cluster management (deploy, scale, status, logs, rollback)
- * - Cloud resource provisioning via Crossplane
- * - Container orchestration and networking
- * - Infrastructure pattern recognition and optimization
+ * The Infrastructure Agent is a specialized focused agent within the AI-IDP multi-agent
+ * architecture, responsible for all infrastructure-related operations including Kubernetes
+ * cluster management, cloud resource provisioning, and container orchestration.
+ * 
+ * **Core Capabilities:**
+ * - **Kubernetes Operations**: Deploy, scale, status, logs, rollback, and resource management
+ * - **Cloud Provisioning**: Database, storage, and function provisioning via Crossplane
+ * - **Container Orchestration**: Advanced container management and networking
+ * - **Pattern Recognition**: Infrastructure pattern learning and optimization via Qdrant
+ * - **MCP Integration**: Model Context Protocol server for Meta-Agent communication
+ * - **Health Monitoring**: Cluster health checks and performance monitoring
+ * 
+ * **Integration Points:**
+ * - **Meta-Agent**: Receives requests via MCP protocol for infrastructure operations
+ * - **Qdrant**: Stores and retrieves infrastructure patterns for learning and optimization
+ * - **Kubernetes API**: Direct integration with Kubernetes clusters for operations
+ * - **Crossplane**: Cloud resource provisioning and lifecycle management
+ * - **Windmill**: Complex kubectl operations requiring shell access
+ * 
+ * @class InfrastructureAgent
+ * @since 1.0.0
+ * @version 1.2.0
+ * 
+ * @example Basic Infrastructure Agent Setup
+ * ```typescript
+ * import { InfrastructureAgent } from '@ai-idp/infrastructure-agent';
+ * 
+ * const infrastructureAgent = new InfrastructureAgent({
+ *   agentId: 'infrastructure',
+ *   name: 'Infrastructure Agent',
+ *   kubeconfig: '/home/user/.kube/config',
+ *   qdrant: {
+ *     url: 'https://your-qdrant-cluster.qdrant.io',
+ *     apiKey: 'your-qdrant-key',
+ *     collectionName: 'infrastructure_context'
+ *   }
+ * });
+ * 
+ * await infrastructureAgent.initialize();
+ * 
+ * // Deploy application
+ * const deployResult = await infrastructureAgent.deployApplication({
+ *   containerImage: 'nginx:latest',
+ *   replicas: 3,
+ *   namespace: 'production'
+ * });
+ * ```
+ * 
+ * @example MCP Integration with Meta-Agent  
+ * ```typescript
+ * // Infrastructure Agent automatically registers capabilities
+ * const capabilities = infrastructureAgent.getCapabilities();
+ * console.log(capabilities.tools); // [deployApplication, scaleApplication, ...]
+ * 
+ * // Meta-Agent calls via MCP
+ * const result = await infrastructureAgent.executeTool(
+ *   'deployApplication',
+ *   { containerImage: 'redis:latest', replicas: 1 },
+ *   conversationContext
+ * );
+ * ```
  */
+/**
+ * Validated configuration type with defaults applied
+ * This represents the actual config after Zod validation with defaults filled in
+ */
+type ValidatedInfrastructureAgentConfig = Required<Pick<InfrastructureAgentConfig, 'agentId' | 'name'>> & 
+  Omit<InfrastructureAgentConfig, 'agentId' | 'name'>;
+
 export class InfrastructureAgent {
-  private config: z.infer<typeof InfrastructureAgentConfigSchema>;
+  private config: ValidatedInfrastructureAgentConfig;
   private logger: Logger;
   private qdrantClient?: QdrantContextClient;
   private k8sOperations: KubernetesOperations;
@@ -69,12 +167,38 @@ export class InfrastructureAgent {
   // Agent capabilities definition
   private capabilities: AgentCapabilities;
 
+  /**
+   * Create a new Infrastructure Agent with configuration and optional logger
+   * 
+   * Initializes the Infrastructure Agent with Kubernetes operations, cloud operations,
+   * and optional Qdrant context storage. The agent is ready for MCP communication
+   * after construction but requires calling initialize() for full functionality.
+   * 
+   * @param config - Infrastructure agent configuration with Kubernetes and cloud settings
+   * @param logger - Optional Pino logger instance (creates default if not provided)
+   * 
+   * @example
+   * ```typescript
+   * const agent = new InfrastructureAgent({
+   *   agentId: 'infrastructure',
+   *   name: 'Production Infrastructure Agent',
+   *   kubeconfig: '/etc/kubernetes/kubeconfig',
+   *   qdrant: {
+   *     url: 'https://qdrant.example.com',
+   *     apiKey: process.env.QDRANT_API_KEY,
+   *     collectionName: 'prod_infrastructure'
+   *   }
+   * });
+   * ```
+   * 
+   * @since 1.0.0
+   */
   constructor(config: InfrastructureAgentConfig, logger?: Logger) {
     this.config = validateData(
       config,
       InfrastructureAgentConfigSchema,
       { service: 'infrastructure-agent', operation: 'constructor' }
-    );
+    ) as ValidatedInfrastructureAgentConfig;
     this.logger = logger ? (logger.child ? logger.child({ component: 'InfrastructureAgent' }) as Logger : logger) : createLogger({
       service: 'infrastructure-agent',
       level: 'info',
@@ -87,8 +211,16 @@ export class InfrastructureAgent {
 
     // Initialize Qdrant client if configured
     if (this.config.qdrant) {
+      const qdrantConfig = {
+        url: this.config.qdrant.url,
+        apiKey: this.config.qdrant.apiKey,
+        collectionName: this.config.qdrant.collectionName,
+        vectorSize: this.config.qdrant.vectorSize || 1536,
+        timeout: this.config.qdrant.timeout || 30000
+      };
+      
       this.qdrantClient = new QdrantContextClient(
-        this.config.qdrant,
+        qdrantConfig,
         process.env.OPENAI_API_KEY || '',
         this.logger
       );
@@ -99,7 +231,34 @@ export class InfrastructureAgent {
   }
 
   /**
-   * Initialize the Infrastructure Agent
+   * Initialize the Infrastructure Agent and all its subsystems
+   * 
+   * Performs complete initialization of the Infrastructure Agent including Kubernetes
+   * client setup, cloud operations initialization, and Qdrant context storage.
+   * Must be called before the agent can process any infrastructure operations.
+   * 
+   * **Initialization Steps:**
+   * 1. Initialize Kubernetes operations client
+   * 2. Initialize cloud operations (Crossplane)
+   * 3. Initialize Qdrant context client (if configured)
+   * 4. Mark agent as ready for operation
+   * 
+   * @returns Promise resolving when all subsystems are initialized
+   * @throws Error if any subsystem fails to initialize
+   * 
+   * @example
+   * ```typescript
+   * const agent = new InfrastructureAgent(config);
+   * 
+   * try {
+   *   await agent.initialize();
+   *   console.log('Infrastructure Agent ready for operations');
+   * } catch (error) {
+   *   console.error('Failed to initialize Infrastructure Agent:', error);
+   * }
+   * ```
+   * 
+   * @since 1.0.0
    */
   async initialize(): Promise<void> {
     try {
@@ -476,8 +635,8 @@ export class InfrastructureAgent {
     try {
       const k8sHealth = await this.k8sOperations.healthCheck();
       const cloudHealth = await this.cloudOperations.healthCheck();
-      const qdrantHealth = this.qdrantClient ? 
-        await this.qdrantClient.healthCheck() : 
+      const qdrantHealth = this.qdrantClient ?
+        await this.qdrantClient.healthCheck() :
         { healthy: true, details: 'Not configured' };
 
       const overall = k8sHealth.healthy && cloudHealth.healthy && qdrantHealth.healthy;
@@ -612,7 +771,7 @@ export class InfrastructureAgent {
 
     try {
       const pattern = `Infrastructure operation: ${operation} with params: ${JSON.stringify(params)}`;
-      
+
       await this.qdrantClient.storeExecutionPattern(
         operationId,
         this.config.agentId,

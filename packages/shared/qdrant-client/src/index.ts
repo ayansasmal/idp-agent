@@ -11,30 +11,141 @@ import type {
   AgentResponse 
 } from '@ai-idp/types';
 
-// Configuration schema
+/**
+ * Qdrant configuration schema for type-safe validation
+ * 
+ * Validates connection settings, collection configuration, and performance tuning
+ * parameters for the AI-IDP vector database integration.
+ */
 const QdrantConfigSchema = z.object({
+  /** Qdrant server URL */
   url: z.string().url(),
+  /** Optional API key for authentication */
   apiKey: z.string().optional(),
+  /** Vector collection name for context storage */
   collectionName: z.string().default('agent_context'),
-  vectorSize: z.number().default(1536), // OpenAI ada-002 embedding size
+  /** Vector dimension size (OpenAI ada-002: 1536) */
+  vectorSize: z.number().default(1536),
+  /** Request timeout in milliseconds */
   timeout: z.number().default(30000)
 });
 
-// Context payload schemas
+/**
+ * Context payload validation schema
+ * 
+ * Ensures consistent structure for stored context vectors across all
+ * agent types and operations.
+ */
 const ContextPayloadSchema = z.object({
+  /** Type of context being stored */
   type: z.enum(['conversation', 'decision', 'execution', 'pattern']),
+  /** Agent that generated this context */
   agent: z.string(),
+  /** ISO timestamp when context was created */
   timestamp: z.string(),
+  /** Text content for semantic search */
   content: z.string(),
+  /** Additional metadata for filtering and retrieval */
   metadata: z.record(z.string(), z.any())
 });
 
+/**
+ * Qdrant Vector Database Client for AI-IDP Context Management
+ * 
+ * Provides intelligent context storage and retrieval using semantic search to enable
+ * cross-agent learning, pattern recognition, and decision support. The client manages
+ * conversation history, agent decisions, execution patterns, and contextual memory
+ * to improve AI-IDP platform intelligence over time.
+ * 
+ * **Key Features:**
+ * - **Semantic Context Storage**: OpenAI embeddings for intelligent context retrieval
+ * - **Cross-Agent Learning**: Shared memory and patterns across all focused agents  
+ * - **Decision History**: Historical decision context for approval workflow intelligence
+ * - **Pattern Recognition**: Execution pattern storage for proactive recommendations
+ * - **Retention Management**: Automated cleanup with configurable retention policies
+ * - **Health Monitoring**: Connection health checks and performance monitoring
+ * 
+ * @class QdrantContextClient
+ * @since 1.0.0
+ * @version 1.1.0
+ * 
+ * @example Basic Setup and Usage
+ * ```typescript
+ * import { QdrantContextClient } from '@ai-idp/qdrant-client';
+ * 
+ * const qdrantClient = new QdrantContextClient(
+ *   {
+ *     url: 'https://your-qdrant-cluster.qdrant.io',
+ *     apiKey: 'your-qdrant-api-key',
+ *     collectionName: 'ai-idp-context',
+ *     vectorSize: 1536
+ *   },
+ *   'your-openai-api-key',
+ *   logger
+ * );
+ * 
+ * await qdrantClient.initialize();
+ * 
+ * // Store conversation context
+ * await qdrantClient.storeConversationContext(
+ *   conversationId,
+ *   conversationContext,
+ *   agentResponse
+ * );
+ * 
+ * // Retrieve similar context
+ * const similarContext = await qdrantClient.retrieveContext({
+ *   query: 'deploy nginx to production',
+ *   type: 'conversation',
+ *   limit: 5
+ * });
+ * ```
+ * 
+ * @example Pattern Learning and Decision Support
+ * ```typescript
+ * // Store execution patterns for learning
+ * await qdrantClient.storeExecutionPattern(
+ *   'deploy-pattern-001',
+ *   'infrastructure',
+ *   'deploy nginx with 3 replicas to production',
+ *   { namespace: 'prod', replicas: 3 },
+ *   true
+ * );
+ * 
+ * // Find similar patterns for recommendations
+ * const similarPatterns = await qdrantClient.findSimilarPatterns(
+ *   'deploy redis to staging',
+ *   'infrastructure',
+ *   3
+ * );
+ * 
+ * // Get historical decisions for approval workflows
+ * const decisions = await qdrantClient.getHistoricalDecisions(
+ *   'production deployment request',
+ *   'security',
+ *   5
+ * );
+ * ```
+ */
 export class QdrantContextClient {
   private qdrant: QdrantClient;
   private openai: OpenAI;
   private config: z.infer<typeof QdrantConfigSchema>;
   private logger: Logger;
 
+  /**
+   * Create a new Qdrant context client with OpenAI embeddings
+   * 
+   * Initializes connection to Qdrant vector database and OpenAI API for
+   * generating embeddings. The client handles all context storage and retrieval
+   * operations for the AI-IDP multi-agent system.
+   * 
+   * @param config - Qdrant connection and collection configuration
+   * @param openaiApiKey - OpenAI API key for embedding generation
+   * @param logger - Pino logger instance for structured logging
+   * 
+   * @since 1.0.0
+   */
   constructor(config: QdrantConfig, openaiApiKey: string, logger: Logger) {
     this.config = QdrantConfigSchema.parse(config);
     this.logger = logger;
@@ -51,6 +162,21 @@ export class QdrantContextClient {
 
   /**
    * Initialize the Qdrant collection for context storage
+   * 
+   * Sets up the vector collection with proper configuration for semantic search.
+   * Creates the collection if it doesn't exist, or verifies existing collection.
+   * Should be called once during application startup.
+   * 
+   * @returns Promise resolving when initialization is complete
+   * @throws Error if collection creation or verification fails
+   * 
+   * @example
+   * ```typescript
+   * await qdrantClient.initialize();
+   * console.log('Qdrant collection ready for context storage');
+   * ```
+   * 
+   * @since 1.0.0
    */
   async initialize(): Promise<void> {
     try {
@@ -85,7 +211,18 @@ export class QdrantContextClient {
   }
 
   /**
-   * Generate embedding for text using OpenAI
+   * Generate embedding for text using OpenAI's text-embedding-ada-002 model
+   * 
+   * Creates semantic vector representations of text content for storage and
+   * similarity search in Qdrant. Uses OpenAI's ada-002 model which produces
+   * 1536-dimensional vectors optimized for semantic similarity.
+   * 
+   * @param text - Text content to convert to embedding vector
+   * @returns Promise resolving to 1536-dimensional embedding vector
+   * @throws Error if OpenAI API call fails or text is too long
+   * 
+   * @private
+   * @since 1.0.0
    */
   private async generateEmbedding(text: string): Promise<number[]> {
     try {
@@ -101,7 +238,33 @@ export class QdrantContextClient {
   }
 
   /**
-   * Store conversation context in Qdrant
+   * Store conversation context in Qdrant for cross-agent learning and memory
+   * 
+   * Stores conversation interactions as semantic vectors enabling future retrieval
+   * of similar conversations, patterns, and decision contexts. The stored context
+   * includes user inputs, agent responses, execution metadata, and success indicators.
+   * 
+   * @param conversationId - Unique identifier for the conversation
+   * @param context - Complete conversation context with history and metadata
+   * @param agentResponse - Agent's response with execution details
+   * @returns Promise resolving when context is stored successfully
+   * @throws Error if embedding generation or vector storage fails
+   * 
+   * @example
+   * ```typescript
+   * await qdrantClient.storeConversationContext(
+   *   'conv-user123-001',
+   *   conversationContext,
+   *   {
+   *     agentId: 'infrastructure',
+   *     success: true,
+   *     message: 'Deployed nginx successfully',
+   *     metadata: { action: 'deploy', executionTime: 2500 }
+   *   }
+   * );
+   * ```
+   * 
+   * @since 1.0.0
    */
   async storeConversationContext(
     conversationId: string,
@@ -270,7 +433,41 @@ export class QdrantContextClient {
   }
 
   /**
-   * Retrieve relevant context based on semantic search
+   * Retrieve relevant context using semantic similarity search
+   * 
+   * Performs semantic search across stored context vectors to find relevant
+   * historical conversations, decisions, and patterns. Uses cosine similarity
+   * with configurable score thresholds and filtering options.
+   * 
+   * @param query - Context retrieval query with search parameters
+   * @returns Promise resolving to array of matching context results with similarity scores
+   * @throws Error if embedding generation or vector search fails
+   * 
+   * @example Basic Context Search
+   * ```typescript
+   * const results = await qdrantClient.retrieveContext({
+   *   query: 'deploy nginx to production environment',
+   *   type: 'conversation',
+   *   limit: 5,
+   *   scoreThreshold: 0.8
+   * });
+   * 
+   * results.forEach(result => {
+   *   console.log(`Score: ${result.score}, Agent: ${result.payload.agent}`);
+   * });
+   * ```
+   * 
+   * @example Agent-Specific Search
+   * ```typescript
+   * const infrastructureContext = await qdrantClient.retrieveContext({
+   *   query: 'scaling kubernetes deployment issues',
+   *   agent: 'infrastructure',
+   *   type: 'pattern',
+   *   limit: 3
+   * });
+   * ```
+   * 
+   * @since 1.0.0
    */
   async retrieveContext(query: ContextRetrievalQuery): Promise<VectorSearchResult[]> {
     try {
@@ -348,7 +545,26 @@ export class QdrantContextClient {
   }
 
   /**
-   * Health check for Qdrant connection
+   * Perform health check for Qdrant connection and collection status
+   * 
+   * Verifies connectivity to Qdrant cluster and validates that the required
+   * collection exists and is accessible. Returns detailed status information
+   * for monitoring and debugging.
+   * 
+   * @returns Promise resolving to health status with connection details
+   * 
+   * @example
+   * ```typescript
+   * const health = await qdrantClient.healthCheck();
+   * 
+   * if (health.healthy) {
+   *   console.log('Qdrant connection healthy');
+   * } else {
+   *   console.error('Qdrant connection failed:', health.details);
+   * }
+   * ```
+   * 
+   * @since 1.0.0
    */
   async healthCheck(): Promise<{ healthy: boolean; details: any }> {
     try {
@@ -376,7 +592,24 @@ export class QdrantContextClient {
   }
 
   /**
-   * Clean up old context data (retention policy)
+   * Clean up old context data based on retention policy
+   * 
+   * Removes context vectors older than the specified retention period to
+   * manage storage costs and maintain performance. Should be run periodically
+   * as part of maintenance routines.
+   * 
+   * @param retentionDays - Number of days to retain context data (default: 30)
+   * @returns Promise resolving to number of records deleted
+   * @throws Error if deletion operation fails
+   * 
+   * @example
+   * ```typescript
+   * // Clean up context older than 60 days
+   * const deletedCount = await qdrantClient.cleanupOldContext(60);
+   * console.log(`Cleaned up ${deletedCount} old context records`);
+   * ```
+   * 
+   * @since 1.0.0
    */
   async cleanupOldContext(retentionDays: number = 30): Promise<number> {
     try {

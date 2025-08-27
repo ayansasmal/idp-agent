@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc && tsc-alias",
+    "build": "tsc && tsc-alias && echo '@ai-idp/meta-agent Build complete'",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
@@ -32,6 +32,7 @@
     "@types/uuid": "^10.0.0",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.20.5",
+    "typedoc": "^0.28.11",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },

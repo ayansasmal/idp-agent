@@ -8,7 +8,7 @@
     "dev:with-meta-agent": "concurrently \"npm run dev:meta-agent\" \"npm run dev:standalone\"",
     "dev:meta-agent": "cd ../meta-agent && npm run dev",
     "build": "npm run build:meta-agent && next build",
-    "build:meta-agent": "cd ../meta-agent && npm run build",
+    "build:meta-agent": "cd ../meta-agent && npm run build && echo '@ai-idp/meta-agent Build complete'",
     "start": "next start --port 3002",
     "lint": "next lint",
     "type-check": "tsc --noEmit"

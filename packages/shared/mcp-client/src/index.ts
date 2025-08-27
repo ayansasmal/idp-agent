@@ -22,15 +22,82 @@ import type {
   ConversationContext
 } from '@ai-idp/types';
 
-// Agent Registry Entry
+/**
+ * Internal registry entry for managing focused agent connections and metadata
+ * 
+ * Stores all information needed to manage communication with a registered
+ * focused agent, including capabilities, MCP client connection, health status,
+ * and transport layer details.
+ * 
+ * @interface AgentRegistryEntry
+ * @internal
+ */
 interface AgentRegistryEntry {
+  /** Agent capabilities and tool definitions */
   capabilities: AgentCapabilities;
+  /** Active MCP client connection to the agent */
   client: Client;
+  /** MCP transport layer (SSE or stdio) */
   transport: SSEClientTransport | StdioClientTransport;
+  /** Timestamp of last health check */
   lastHealthCheck: Date;
+  /** Current health status of the agent */
   healthy: boolean;
 }
 
+/**
+ * MCP Agent Client for Multi-Agent Communication
+ * 
+ * The MCPAgentClient manages communication between the Meta-Agent and focused agents
+ * using the Model Context Protocol (MCP). It handles:
+ * 
+ * - **Agent Registration**: Registers focused agents and maintains their capabilities
+ * - **Tool Execution**: Routes tool calls to appropriate agents via MCP protocol
+ * - **Health Monitoring**: Continuously monitors agent health and connectivity
+ * - **Error Handling**: Provides robust error handling with automatic retries
+ * - **Connection Management**: Manages MCP connections and transport layers
+ * 
+ * The client abstracts the complexity of multi-agent communication, providing
+ * a simple interface for the Meta-Agent to interact with any number of focused agents.
+ * 
+ * @class MCPAgentClient
+ * @since 1.0.0
+ * @version 1.1.0
+ * 
+ * @example Basic Usage
+ * ```typescript
+ * const config: MCPConfig = {
+ *   serverPort: 3001,
+ *   clientTimeout: 30000,
+ *   maxRetries: 3,
+ *   retryDelay: 1000
+ * };
+ * 
+ * const mcpClient = new MCPAgentClient(config);
+ * 
+ * // Register an Infrastructure Agent
+ * await mcpClient.registerAgent(infrastructureCapabilities);
+ * 
+ * // Execute a tool on the agent
+ * const response = await mcpClient.callTool(
+ *   "infrastructure",
+ *   "deployApplication",
+ *   { containerImage: "nginx:latest", replicas: 3 },
+ *   context
+ * );
+ * ```
+ * 
+ * @example Health Monitoring
+ * ```typescript
+ * // Check health of all registered agents
+ * const healthStatus = await mcpClient.healthCheckAll();
+ * console.log(healthStatus); // { "infrastructure": true, "security": false }
+ * 
+ * // Get available tools from healthy agents
+ * const tools = mcpClient.getAvailableTools();
+ * console.log(tools); // { "infrastructure": [{ name: "deployApplication", ... }] }
+ * ```
+ */
 export class MCPAgentClient {
   private agentRegistry: Map<string, AgentRegistryEntry> = new Map();
   private config: MCPConfig;

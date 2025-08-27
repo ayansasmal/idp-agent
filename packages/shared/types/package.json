@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && echo '@ai-idp/types Build complete'",
     "dev": "tsc --watch",
     "type-check": "tsc --noEmit"
   },
