@@ -155,9 +155,15 @@ export class QdrantContextClient {
       apiKey: this.config.apiKey,
     });
 
-    this.openai = new OpenAI({
-      apiKey: openaiApiKey,
-    });
+    // Only initialize OpenAI if we have a valid API key
+    if (openaiApiKey && openaiApiKey !== 'your_openai_fallback_key' && openaiApiKey.startsWith('sk-')) {
+      this.openai = new OpenAI({
+        apiKey: openaiApiKey,
+      });
+    } else {
+      this.logger.warn({}, 'OpenAI API key not provided or invalid - embeddings will not be available');
+      this.openai = null as any; // Will be handled gracefully in methods
+    }
   }
 
   /**
@@ -225,6 +231,12 @@ export class QdrantContextClient {
    * @since 1.0.0
    */
   private async generateEmbedding(text: string): Promise<number[]> {
+    if (!this.openai) {
+      this.logger.warn({}, 'OpenAI not available - using mock embedding for development');
+      // Return a mock embedding of the correct size for development
+      return new Array(1536).fill(0).map(() => Math.random() - 0.5);
+    }
+
     try {
       const response = await this.openai.embeddings.create({
         model: 'text-embedding-ada-002',

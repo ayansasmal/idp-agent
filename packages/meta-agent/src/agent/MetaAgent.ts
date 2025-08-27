@@ -249,13 +249,28 @@ export class MetaAgent {
     try {
       this.logger.info({}, 'Initializing Meta-Agent');
 
-      // Initialize Qdrant context storage
-      await this.qdrantClient.initialize();
-      this.logger.info({}, 'Qdrant context client initialized');
+      // Initialize Qdrant context storage (graceful fallback for development)
+      try {
+        await this.qdrantClient.initialize();
+        this.logger.info({}, 'Qdrant context client initialized');
+      } catch (error) {
+        this.logger.warn({ error: error?.message || error }, 'Qdrant initialization failed - continuing without context storage');
+        // In development, continue without Qdrant for basic functionality
+        if (process.env.NODE_ENV !== 'development') {
+          throw error;
+        }
+      }
 
-      // Initialize context manager
-      await this.contextManager.initialize();
-      this.logger.info({}, 'Context manager initialized');
+      // Initialize context manager (graceful fallback for development)
+      try {
+        await this.contextManager.initialize();
+        this.logger.info({}, 'Context manager initialized');
+      } catch (error) {
+        this.logger.warn({ error: error?.message || error }, 'Context manager initialization failed - continuing without context management');
+        if (process.env.NODE_ENV !== 'development') {
+          throw error;
+        }
+      }
 
       // Initialize approval module (placeholder - will be implemented when core package is available)
       // await this.approvalModule.initialize();
@@ -265,15 +280,30 @@ export class MetaAgent {
       await this.validateAIProviders();
       this.logger.info({}, 'AI providers validated');
 
-      // Register available focused agents
-      await this.registerAvailableAgents();
-      this.logger.info({}, 'Focused agents registered');
+      // Register available focused agents (graceful fallback for development)
+      try {
+        await this.registerAvailableAgents();
+        this.logger.info({}, 'Focused agents registered');
+      } catch (error) {
+        this.logger.warn({ 
+          error: error?.message || String(error),
+          stack: error?.stack 
+        }, 'Agent registration failed - continuing without focused agents');
+        if (process.env.NODE_ENV !== 'development') {
+          throw error;
+        }
+      }
 
       this.isInitialized = true;
       this.logger.info({}, 'Meta-Agent initialized successfully');
 
     } catch (error: any) {
-      this.logger.error({ error: error?.message || error }, 'Failed to initialize Meta-Agent');
+      this.logger.error({ 
+        error: error?.message || String(error),
+        stack: error?.stack,
+        code: error?.code,
+        cause: error?.cause
+      }, 'Failed to initialize Meta-Agent');
       throw error;
     }
   }
