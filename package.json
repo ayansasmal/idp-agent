@@ -1,7 +1,7 @@
 {
   "name": "ai-idp-modular",
   "version": "3.0.0",
-  "description": "AI-Powered Integrated Developer Platform with Multi-Agent Architecture, Shared Utilities, and Production Web Application",
+  "description": "AI-Powered Integrated Developer Platform with Streamlined Multi-Agent Architecture - Meta-Agent + Infrastructure Agent + Web Application",
   "private": true,
   "workspaces": [
     "packages/*/",
@@ -78,6 +78,7 @@
   "keywords": [
     "ai",
     "multi-agent",
+    "meta-agent",
     "platform-engineering",
     "nextjs",
     "react",
@@ -91,11 +92,12 @@
     "mcp-protocol",
     "shared-utilities",
     "infrastructure-agent",
-    "modular-architecture",
+    "streamlined-architecture",
     "safety-validation",
     "qdrant",
     "vector-database",
-    "typescript"
+    "typescript",
+    "comprehensive-jsdoc"
   ],
   "author": "Platform Engineering Team",
   "license": "MIT"
