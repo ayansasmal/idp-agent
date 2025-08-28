@@ -215,7 +215,7 @@ export class InfrastructureAgent {
         url: this.config.qdrant.url,
         apiKey: this.config.qdrant.apiKey,
         collectionName: this.config.qdrant.collectionName,
-        vectorSize: this.config.qdrant.vectorSize || 1536,
+        vectorSize: 384, // Use 384 for local embeddings (Xenova/all-MiniLM-L6-v2)
         timeout: this.config.qdrant.timeout || 30000
       };
 

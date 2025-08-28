@@ -279,6 +279,8 @@ export class InfrastructureHTTPServer {
 
       // SSE endpoint for MCP client
       this.fastify.get('/mcp', async (request: any, reply: any) => {
+        this.logger.info('MCP SSE connection established');
+        
         reply.raw.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -288,22 +290,55 @@ export class InfrastructureHTTPServer {
           'Access-Control-Allow-Methods': 'GET'
         });
         
-        // Send initial connection event
-        reply.raw.write('data: {"jsonrpc":"2.0","method":"server/initialized","params":{}}\n\n');
+        // MCP protocol: Send server info and capabilities
+        const serverInfo = {
+          jsonrpc: '2.0',
+          method: 'notifications/initialized',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {
+                listChanged: true
+              }
+            },
+            serverInfo: {
+              name: 'infrastructure-agent',
+              version: '1.0.0'
+            }
+          }
+        };
+        
+        reply.raw.write(`data: ${JSON.stringify(serverInfo)}\n\n`);
+        
+        // Send available tools
+        const capabilities = this.agent.getCapabilities();
+        const toolsList = {
+          jsonrpc: '2.0',
+          method: 'notifications/tools/list_changed',
+          params: {
+            tools: capabilities.tools
+          }
+        };
+        
+        reply.raw.write(`data: ${JSON.stringify(toolsList)}\n\n`);
         
         // Keep connection alive with heartbeat
         const keepAlive = setInterval(() => {
           if (!reply.raw.destroyed) {
             reply.raw.write(': heartbeat\n\n');
+          } else {
+            clearInterval(keepAlive);
           }
         }, 30000);
         
         // Clean up on connection close
         request.raw.on('close', () => {
+          this.logger.info('MCP SSE connection closed');
           clearInterval(keepAlive);
         });
         
-        request.raw.on('error', () => {
+        request.raw.on('error', (error) => {
+          this.logger.error(error, 'MCP SSE connection error');
           clearInterval(keepAlive);
         });
         

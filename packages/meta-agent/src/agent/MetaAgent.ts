@@ -174,7 +174,7 @@ export class MetaAgent {
       url: this.config.qdrant.url,
       apiKey: this.config.qdrant.apiKey,
       collectionName: this.config.qdrant.collectionName,
-      vectorSize: this.config.qdrant.vectorSize || 384, // Updated for local embeddings
+      vectorSize: 384, // Use 384 for local embeddings (Xenova/all-MiniLM-L6-v2)
       timeout: this.config.qdrant.timeout || 30000
     };
 
@@ -373,10 +373,29 @@ export class MetaAgent {
         specializations: capabilities.specializations
       }, `Registering focused agent: ${capabilities.agentId}`);
 
+      // Validate agent endpoints before registration
+      this.logger.info({ healthEndpoint: capabilities.endpoints.health }, 'Validating agent endpoints');
+      
+      try {
+        const healthResponse = await fetch(capabilities.endpoints.health, { 
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(5000) // 5 second timeout
+        });
+        
+        if (!healthResponse.ok) {
+          throw new Error(`Health endpoint returned ${healthResponse.status}: ${healthResponse.statusText}`);
+        }
+        
+        this.logger.info({ agentId: capabilities.agentId }, 'Agent health endpoint validated successfully');
+      } catch (error: any) {
+        throw new Error(`Agent endpoint validation failed: ${error.message}`);
+      }
+
       // Register with MCP client with timeout
       const registrationPromise = this.mcpClient.registerAgent(capabilities);
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Registration timeout after 10 seconds')), 10000);
+        setTimeout(() => reject(new Error('MCP registration timeout after 10 seconds')), 10000);
       });
 
       await Promise.race([registrationPromise, timeoutPromise]);

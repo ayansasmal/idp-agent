@@ -108,23 +108,110 @@ export async function startMetaAgentService(port: number = 3000): Promise<void> 
       };
     });
 
-    // Process request endpoint
+    // Process request endpoint (legacy)
     fastify.post('/process', async (request: any, reply: any) => {
       try {
         const { userInput, context } = request.body;
 
         if (!userInput || !context) {
+          logger.error({ body: request.body }, 'Missing required fields in /process request');
           reply.code(400);
           return { error: 'userInput and context are required' };
         }
 
+        logger.info({ userInput: userInput.substring(0, 100) }, 'Processing request via /process endpoint');
         const response = await metaAgent.processRequest(userInput, context);
+        logger.info({ success: response.success }, 'Request processing completed');
         return response;
 
-      } catch (error) {
-        logger.error(error, 'Request processing failed');
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Request processing failed in /process');
         reply.code(500);
-        return { error: 'Internal server error' };
+        return { error: 'Internal server error', details: error.message };
+      }
+    });
+
+    // Chat endpoint (web-app compatible)
+    fastify.post('/chat', async (request: any, reply: any) => {
+      try {
+        const { userInput, context } = request.body;
+
+        if (!userInput || !context) {
+          logger.error({ body: request.body }, 'Missing required fields in /chat request');
+          reply.code(400);
+          return { error: 'userInput and context are required' };
+        }
+
+        logger.info({ userInput: userInput.substring(0, 100) }, 'Processing chat request');
+        const response = await metaAgent.processRequest(userInput, context);
+        logger.info({ success: response.success }, 'Chat request processing completed');
+        return response;
+
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Chat request processing failed');
+        reply.code(500);
+        return { error: 'Internal server error', details: error.message };
+      }
+    });
+
+    // Approvals endpoint (web-app compatible)
+    fastify.get('/approvals', async (request: any, reply: any) => {
+      try {
+        logger.info({}, 'Fetching approvals list');
+        const approvalModule = await metaAgent.getApprovalModule();
+        logger.info({ approvalCount: approvalModule?.result?.pendingApprovals?.length || 0 }, 'Approvals retrieved');
+        return approvalModule;
+
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to fetch approvals');
+        reply.code(500);
+        return { error: 'Failed to fetch approvals', details: error.message };
+      }
+    });
+
+    // Approval approve endpoint
+    fastify.post('/approvals/approve', async (request: any, reply: any) => {
+      try {
+        const { id, approverId, comments } = request.body;
+
+        if (!id) {
+          logger.error({ body: request.body }, 'Missing approval ID in approve request');
+          reply.code(400);
+          return { error: 'Approval ID is required' };
+        }
+
+        logger.info({ id, approverId }, 'Processing approval approve action');
+        const result = await metaAgent.processApprovalAction('approve', id, approverId || 'web-user', comments);
+        logger.info({ id, success: result.success }, 'Approval approve action completed');
+        return result;
+
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to approve request');
+        reply.code(500);
+        return { error: 'Failed to approve request', details: error.message };
+      }
+    });
+
+    // Approval reject endpoint
+    fastify.post('/approvals/reject', async (request: any, reply: any) => {
+      try {
+        const { id, approverId, comments } = request.body;
+
+        if (!id) {
+          logger.error({ body: request.body }, 'Missing approval ID in reject request');
+          reply.code(400);
+          return { error: 'Approval ID is required' };
+        }
+
+        logger.info({ id, approverId }, 'Processing approval reject action');
+        const result = await metaAgent.processApprovalAction('reject', id, approverId || 'web-user', comments);
+        logger.info({ id, success: result.success }, 'Approval reject action completed');
+        return result;
+
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to reject request');
+        reply.code(500);
+        return { error: 'Failed to reject request', details: error.message };
       }
     });
 

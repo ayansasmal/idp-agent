@@ -60,7 +60,11 @@ export class DynamoDBSessionStore {
       },
     });
 
-    this.client = DynamoDBDocumentClient.from(dynamoClient);
+    this.client = DynamoDBDocumentClient.from(dynamoClient, {
+      marshallOptions: {
+        removeUndefinedValues: true
+      }
+    });
     this.tableName = process.env.CHAT_SESSIONS_TABLE_NAME || 'ai-idp-chat-sessions';
   }
 

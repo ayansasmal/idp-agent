@@ -386,9 +386,21 @@ export class KubernetesOperations {
       const namespaces = namespacesResp;
       this.availableNamespaces = namespaces.items.map(ns => ns.metadata!.name!);
       this.logger.info({ count: this.availableNamespaces.length }, 'Loaded namespaces');
-    } catch (error) {
-      this.logger.warn({ error }, 'Failed to load namespaces');
-      this.availableNamespaces = ['default'];
+    } catch (error: any) {
+      // Handle common Kubernetes connection errors gracefully
+      if (error.code === 'ERR_INVALID_URL' || error.code === 'ECONNREFUSED') {
+        this.logger.warn({ 
+          error: error.message,
+          code: error.code 
+        }, 'Kubernetes API server unreachable, running in simulation mode');
+        this.availableNamespaces = ['default', 'development', 'staging', 'production'];
+        // Clear k8s clients to force simulation mode
+        this.k8sApi = undefined;
+        this.k8sAppsApi = undefined;
+      } else {
+        this.logger.warn({ error: error.message }, 'Failed to load namespaces');
+        this.availableNamespaces = ['default'];
+      }
     }
   }
 
