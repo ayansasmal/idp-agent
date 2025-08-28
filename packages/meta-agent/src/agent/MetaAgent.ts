@@ -428,11 +428,78 @@ export class MetaAgent {
         name: 'Infrastructure Agent',
         description: 'Kubernetes and Cloud Operations Specialist',
         tools: [
-          'deploy-application',
-          'scale-resource', 
-          'get-resource-status',
-          'get-resource-logs',
-          'provision-database'
+          {
+            name: 'deployApplication',
+            description: 'Deploy applications to Kubernetes with comprehensive validation',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                resourceName: { type: 'string', description: 'Name of the application to deploy' },
+                containerImage: { type: 'string', description: 'Container image to deploy' },
+                namespace: { type: 'string', description: 'Kubernetes namespace (default: default)' },
+                replicas: { type: 'number', description: 'Number of replicas (default: 1)' },
+                port: { type: 'number', description: 'Application port (default: 8080)' },
+                environment: { type: 'string', description: 'Environment (development/staging/production)' }
+              },
+              required: ['resourceName', 'containerImage']
+            }
+          },
+          {
+            name: 'scaleResource',
+            description: 'Scale Kubernetes resources with monitoring and validation',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                resourceName: { type: 'string', description: 'Name of the resource to scale' },
+                replicas: { type: 'number', description: 'Target number of replicas' },
+                namespace: { type: 'string', description: 'Kubernetes namespace (default: default)' },
+                resourceType: { type: 'string', description: 'Resource type (default: deployment)' }
+              },
+              required: ['resourceName', 'replicas']
+            }
+          },
+          {
+            name: 'getResourceStatus',
+            description: 'Get detailed status of Kubernetes resources',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                resourceName: { type: 'string', description: 'Name of the resource to check' },
+                namespace: { type: 'string', description: 'Kubernetes namespace (default: default)' },
+                resourceType: { type: 'string', description: 'Resource type (default: deployment)' }
+              },
+              required: ['resourceName']
+            }
+          },
+          {
+            name: 'getResourceLogs',
+            description: 'Retrieve logs from Kubernetes resources',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                resourceName: { type: 'string', description: 'Name of the resource to get logs from' },
+                namespace: { type: 'string', description: 'Kubernetes namespace (default: default)' },
+                lines: { type: 'number', description: 'Number of log lines to retrieve (default: 100)' },
+                follow: { type: 'boolean', description: 'Whether to follow logs (default: false)' }
+              },
+              required: ['resourceName']
+            }
+          },
+          {
+            name: 'provisionDatabase',
+            description: 'Provision cloud databases using Crossplane',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string', description: 'Database instance name' },
+                type: { type: 'string', description: 'Database type (postgresql, mysql, redis)' },
+                namespace: { type: 'string', description: 'Kubernetes namespace (default: default)' },
+                storageSize: { type: 'string', description: 'Storage size (e.g., 10Gi, 100Gi)' },
+                environment: { type: 'string', description: 'Environment (development/staging/production)' }
+              },
+              required: ['name', 'type']
+            }
+          }
         ],
         specializations: [
           'kubernetes',
