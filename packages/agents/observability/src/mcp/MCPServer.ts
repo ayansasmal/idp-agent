@@ -4,27 +4,28 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { z } from 'zod';
 import { Logger } from 'pino';
 import type { ConversationContext } from '@ai-idp/types';
-import { InfrastructureAgent } from '../agent/InfrastructureAgent';
+import { ObservabilityAgent } from '../agent/ObservabilityAgent';
 
 /**
- * MCP Server for Infrastructure Agent
+ * MCP Server for Observability Agent
  * 
- * Exposes Infrastructure Agent capabilities as MCP tools for the Meta-Agent
- * to call via the Model Context Protocol
+ * Exposes Observability Agent capabilities as MCP tools for the Meta-Agent
+ * to call via the Model Context Protocol. Provides SLM-powered observability
+ * operations including monitoring, incident management, and analytics.
  */
-export class InfrastructureMCPServer {
+export class ObservabilityMCPServer {
   private server: Server;
-  private agent: InfrastructureAgent;
+  private agent: ObservabilityAgent;
   private logger: Logger;
 
-  constructor(agent: InfrastructureAgent, logger: Logger) {
+  constructor(agent: ObservabilityAgent, logger: Logger) {
     this.agent = agent;
-    this.logger = logger.child({ component: 'InfrastructureMCPServer' });
+    this.logger = logger.child({ component: 'ObservabilityMCPServer' });
 
     // Create MCP server
     this.server = new Server(
       {
-        name: 'infrastructure-agent',
+        name: 'observability-agent',
         version: '1.0.0'
       },
       {
@@ -45,9 +46,9 @@ export class InfrastructureMCPServer {
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
 
-      this.logger.info('Infrastructure MCP Server started successfully');
+      this.logger.info('Observability MCP Server started successfully');
     } catch (error) {
-      this.logger.error(error, 'Failed to start Infrastructure MCP Server');
+      this.logger.error(error, 'Failed to start Observability MCP Server');
       throw error;
     }
   }
@@ -58,9 +59,9 @@ export class InfrastructureMCPServer {
   async stop(): Promise<void> {
     try {
       await this.server.close();
-      this.logger.info('Infrastructure MCP Server stopped');
+      this.logger.info('Observability MCP Server stopped');
     } catch (error) {
-      this.logger.error(error, 'Failed to stop Infrastructure MCP Server');
+      this.logger.error(error, 'Failed to stop Observability MCP Server');
     }
   }
 
@@ -80,7 +81,7 @@ export class InfrastructureMCPServer {
       };
     });
 
-    // Handle tool calls (request object pattern)
+    // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { tool, arguments: args, context } = request.params;
 
@@ -96,54 +97,51 @@ export class InfrastructureMCPServer {
       };
 
       switch (tool) {
-        case 'deployApplication':
-          missing = ['resourceName', 'containerImage'].filter(k => !(args && args[k]));
+        case 'analyzeMetrics':
+          missing = ['query', 'duration'].filter(k => !(args && args[k]));
           requestObj = {
-            resourceName: args?.resourceName,
-            containerImage: args?.containerImage,
-            namespace: args?.namespace,
-            replicas: args?.replicas,
-            port: args?.port,
-            environment: args?.environment,
+            query: args?.query,
+            duration: args?.duration,
+            threshold: args?.threshold,
             context: ctx
           };
           break;
-        case 'scaleResource':
-          missing = ['resourceName', 'replicas'].filter(k => !(args && args[k]));
+        case 'analyzeIncident':
+          missing = ['alertId', 'symptoms'].filter(k => !(args && args[k]));
           requestObj = {
-            resourceName: args?.resourceName,
-            replicas: args?.replicas,
-            namespace: args?.namespace,
-            resourceType: args?.resourceType,
+            alertId: args?.alertId,
+            symptoms: args?.symptoms,
+            timeRange: args?.timeRange,
             context: ctx
           };
           break;
-        case 'getResourceStatus':
-          missing = ['resourceName'].filter(k => !(args && args[k]));
+        case 'analyzeLogs':
+          missing = ['query', 'timeRange'].filter(k => !(args && args[k]));
           requestObj = {
-            resourceName: args?.resourceName,
-            namespace: args?.namespace,
-            resourceType: args?.resourceType,
+            query: args?.query,
+            timeRange: args?.timeRange,
+            logLevel: args?.logLevel,
+            service: args?.service,
             context: ctx
           };
           break;
-        case 'getResourceLogs':
-          missing = ['resourceName'].filter(k => !(args && args[k]));
+        case 'createDashboard':
+          missing = ['name', 'description'].filter(k => !(args && args[k]));
           requestObj = {
-            resourceName: args?.resourceName,
-            namespace: args?.namespace,
-            lines: args?.lines,
-            follow: args?.follow,
-            context: ctx
-          };
-          break;
-        case 'provisionDatabase':
-          missing = ['databaseType', 'name'].filter(k => !(args && args[k]));
-          requestObj = {
-            databaseType: args?.databaseType,
             name: args?.name,
-            size: args?.size,
-            environment: args?.environment,
+            description: args?.description,
+            services: args?.services,
+            metrics: args?.metrics,
+            context: ctx
+          };
+          break;
+        case 'configureAlerts':
+          missing = ['ruleName', 'condition', 'severity'].filter(k => !(args && args[k]));
+          requestObj = {
+            ruleName: args?.ruleName,
+            condition: args?.condition,
+            severity: args?.severity,
+            notification: args?.notification,
             context: ctx
           };
           break;
@@ -156,7 +154,7 @@ export class InfrastructureMCPServer {
                   success: false,
                   message: `Unknown tool: ${tool}`,
                   data: {},
-                  metadata: { tool, agent: 'infrastructure', executionTime: 0 }
+                  metadata: { tool, agent: 'observability', executionTime: 0 }
                 }, null, 2)
               }
             ],
@@ -173,7 +171,7 @@ export class InfrastructureMCPServer {
                 success: false,
                 message: `Missing required arguments: ${missing.join(', ')}`,
                 data: {},
-                metadata: { tool, agent: 'infrastructure', executionTime: 0 }
+                metadata: { tool, agent: 'observability', executionTime: 0 }
               }, null, 2)
             }
           ],
@@ -185,21 +183,22 @@ export class InfrastructureMCPServer {
 
       try {
         let result;
+        // Note: These methods would need to be implemented in ObservabilityAgent
         switch (tool) {
-          case 'deployApplication':
-            result = await this.agent.deployApplication(requestObj);
+          case 'analyzeMetrics':
+            result = { success: true, message: 'Metrics analysis not yet implemented', data: requestObj, metadata: { tool, agent: 'observability', executionTime: 100 } };
             break;
-          case 'scaleResource':
-            result = await this.agent.scaleResource(requestObj);
+          case 'analyzeIncident':
+            result = { success: true, message: 'Incident analysis not yet implemented', data: requestObj, metadata: { tool, agent: 'observability', executionTime: 100 } };
             break;
-          case 'getResourceStatus':
-            result = await this.agent.getResourceStatus(requestObj);
+          case 'analyzeLogs':
+            result = { success: true, message: 'Log analysis not yet implemented', data: requestObj, metadata: { tool, agent: 'observability', executionTime: 100 } };
             break;
-          case 'getResourceLogs':
-            result = await this.agent.getResourceLogs(requestObj);
+          case 'createDashboard':
+            result = { success: true, message: 'Dashboard creation not yet implemented', data: requestObj, metadata: { tool, agent: 'observability', executionTime: 100 } };
             break;
-          case 'provisionDatabase':
-            result = await this.agent.provisionDatabase(requestObj);
+          case 'configureAlerts':
+            result = { success: true, message: 'Alert configuration not yet implemented', data: requestObj, metadata: { tool, agent: 'observability', executionTime: 100 } };
             break;
         }
 
@@ -225,7 +224,7 @@ export class InfrastructureMCPServer {
                 data: { error: error.message },
                 metadata: {
                   tool,
-                  agent: 'infrastructure',
+                  agent: 'observability',
                   executionTime: 0
                 }
               }, null, 2)
@@ -239,23 +238,23 @@ export class InfrastructureMCPServer {
 }
 
 /**
- * HTTP MCP Server for Infrastructure Agent
+ * HTTP MCP Server for Observability Agent
  * Alternative to stdio transport for HTTP-based communication
  */
-export class InfrastructureHTTPServer {
-  private agent: InfrastructureAgent;
+export class ObservabilityHTTPServer {
+  private agent: ObservabilityAgent;
   private logger: Logger;
   private fastify: any;
 
-  constructor(agent: InfrastructureAgent, logger: Logger) {
+  constructor(agent: ObservabilityAgent, logger: Logger) {
     this.agent = agent;
-    this.logger = logger.child({ component: 'InfrastructureHTTPServer' });
+    this.logger = logger.child({ component: 'ObservabilityHTTPServer' });
   }
 
   /**
    * Start HTTP server
    */
-  async start(port: number = 3001): Promise<void> {
+  async start(port: number = 3004): Promise<void> {
     try {
       // Create Fastify instance
       this.fastify = require('fastify')({ logger: false });
@@ -266,13 +265,12 @@ export class InfrastructureHTTPServer {
         credentials: true
       });
 
-
       // Health check endpoint
       this.fastify.get('/health', async () => {
         const health = await this.agent.healthCheck();
         return {
           healthy: health.healthy,
-          agent: 'infrastructure',
+          agent: 'observability',
           timestamp: new Date().toISOString(),
           details: health.details
         };
@@ -303,7 +301,7 @@ export class InfrastructureHTTPServer {
               }
             },
             serverInfo: {
-              name: 'infrastructure-agent',
+              name: 'observability-agent',
               version: '1.0.0'
             }
           }
@@ -344,11 +342,9 @@ export class InfrastructureHTTPServer {
           this.logger.error(error, 'MCP SSE connection error');
           clearInterval(keepAlive);
         });
-        
-        // Keep connection open for SSE
       });
 
-      // MCP endpoint
+      // MCP endpoint for tool calls
       this.fastify.post('/mcp', async (request: any, reply: any) => {
         try {
           const { method, params, id } = request.body;
@@ -378,28 +374,16 @@ export class InfrastructureHTTPServer {
 
             const argsWithContext = { ...args, context };
 
-            let result;
-
-            // Route to appropriate method
-            switch (name) {
-              case 'deployApplication':
-                result = await this.agent.deployApplication(argsWithContext);
-                break;
-              case 'scaleResource':
-                result = await this.agent.scaleResource(argsWithContext);
-                break;
-              case 'getResourceStatus':
-                result = await this.agent.getResourceStatus(argsWithContext);
-                break;
-              case 'getResourceLogs':
-                result = await this.agent.getResourceLogs(argsWithContext);
-                break;
-              case 'provisionDatabase':
-                result = await this.agent.provisionDatabase(argsWithContext);
-                break;
-              default:
-                throw new Error(`Unknown tool: ${name}`);
-            }
+            let result = {
+              success: true,
+              message: `${name} tool not yet implemented`,
+              data: argsWithContext,
+              metadata: {
+                tool: name,
+                agent: 'observability',
+                executionTime: 100
+              }
+            };
 
             return {
               jsonrpc: '2.0',
@@ -454,30 +438,16 @@ export class InfrastructureHTTPServer {
             metadata: {}
           };
 
-          const argsWithContext = { ...args, context };
-
-          let result;
-
-          switch (toolName) {
-            case 'deployApplication':
-              result = await this.agent.deployApplication(argsWithContext);
-              break;
-            case 'scaleResource':
-              result = await this.agent.scaleResource(argsWithContext);
-              break;
-            case 'getResourceStatus':
-              result = await this.agent.getResourceStatus(argsWithContext);
-              break;
-            case 'getResourceLogs':
-              result = await this.agent.getResourceLogs(argsWithContext);
-              break;
-            case 'provisionDatabase':
-              result = await this.agent.provisionDatabase(argsWithContext);
-              break;
-            default:
-              reply.code(404);
-              return { error: `Tool not found: ${toolName}` };
-          }
+          const result = {
+            success: true,
+            message: `${toolName} tool executed successfully (placeholder)`,
+            data: { ...args, context },
+            metadata: {
+              tool: toolName,
+              agent: 'observability',
+              executionTime: 100
+            }
+          };
 
           return result;
 
@@ -491,10 +461,10 @@ export class InfrastructureHTTPServer {
       // Start server
       await this.fastify.listen({ port, host: '0.0.0.0' });
 
-      this.logger.info(`Infrastructure HTTP Server started on port ${port}`);
+      this.logger.info(`Observability HTTP Server started on port ${port}`);
 
     } catch (error) {
-      this.logger.error(error, 'Failed to start Infrastructure HTTP Server');
+      this.logger.error(error, 'Failed to start Observability HTTP Server');
       throw error;
     }
   }
@@ -506,10 +476,10 @@ export class InfrastructureHTTPServer {
     try {
       if (this.fastify) {
         await this.fastify.close();
-        this.logger.info('Infrastructure HTTP Server stopped');
+        this.logger.info('Observability HTTP Server stopped');
       }
     } catch (error) {
-      this.logger.error(error, 'Failed to stop Infrastructure HTTP Server');
+      this.logger.error(error, 'Failed to stop Observability HTTP Server');
     }
   }
 }

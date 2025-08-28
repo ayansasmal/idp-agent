@@ -204,7 +204,7 @@ Examples:
    */
   private async classifyWithAnthropic(prompt: string): Promise<any> {
     const response = await this.anthropic!.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-7-sonnet-latest',
       max_tokens: 1024,
       temperature: 0.1, // Low temperature for consistent classification
       messages: [{

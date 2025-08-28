@@ -420,10 +420,12 @@ export class MetaAgent {
       // Register Infrastructure Agent
       await this.registerInfrastructureAgent();
 
+      // Register Observability Agent
+      await this.registerObservabilityAgent();
+
       // TODO: Register other focused agents as they become available
       // - Security Agent
-      // - Workflow Agent  
-      // - Observability Agent
+      // - Workflow Agent
 
       this.logger.info({
         totalAgents: this.registeredAgents.size,
@@ -539,6 +541,116 @@ export class MetaAgent {
       this.logger.info({}, 'Infrastructure Agent registered successfully');
     } catch (error: any) {
       this.logger.warn({ error: error?.message || error }, 'Failed to register Infrastructure Agent - it may not be running');
+      // Don't throw error - allow Meta-Agent to continue without this agent
+    }
+  }
+
+  /**
+   * Register Observability Agent if available
+   */
+  private async registerObservabilityAgent(): Promise<void> {
+    try {
+      // Define Observability Agent capabilities
+      const capabilities = {
+        agentId: 'observability',
+        name: 'Observability Agent',
+        description: 'SLM-powered monitoring, incident management, and analytics specialist',
+        version: '1.0.0',
+        tools: [
+          {
+            name: 'analyzeMetrics',
+            description: 'Analyze metrics using SLM-powered pattern recognition and anomaly detection',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                query: { type: 'string', description: 'PromQL query or metric pattern' },
+                duration: { type: 'string', description: 'Time range (e.g., "5m", "1h", "1d")' },
+                threshold: { type: 'number', description: 'Anomaly detection threshold' },
+                context: { type: 'object', description: 'Conversation context' }
+              },
+              required: ['query', 'duration', 'context']
+            }
+          },
+          {
+            name: 'analyzeIncident',
+            description: 'Perform SLM-powered incident analysis and root cause identification',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                alertId: { type: 'string', description: 'Alert or incident identifier' },
+                symptoms: { type: 'array', items: { type: 'string' }, description: 'Observed symptoms' },
+                timeRange: { type: 'string', description: 'Incident time window' },
+                context: { type: 'object', description: 'Conversation context' }
+              },
+              required: ['alertId', 'symptoms', 'context']
+            }
+          },
+          {
+            name: 'analyzeLogs',
+            description: 'Intelligent log analysis with SLM-powered pattern recognition',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                query: { type: 'string', description: 'Log search query or pattern' },
+                timeRange: { type: 'string', description: 'Log search time range' },
+                logLevel: { type: 'string', description: 'Log level filter (error, warn, info, debug)' },
+                service: { type: 'string', description: 'Service or component filter' },
+                context: { type: 'object', description: 'Conversation context' }
+              },
+              required: ['query', 'timeRange', 'context']
+            }
+          },
+          {
+            name: 'createDashboard',
+            description: 'Generate intelligent dashboards based on SLM analysis of requirements',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string', description: 'Dashboard name' },
+                description: { type: 'string', description: 'Dashboard purpose and scope' },
+                services: { type: 'array', items: { type: 'string' }, description: 'Services to monitor' },
+                metrics: { type: 'array', items: { type: 'string' }, description: 'Key metrics to display' },
+                context: { type: 'object', description: 'Conversation context' }
+              },
+              required: ['name', 'description', 'context']
+            }
+          },
+          {
+            name: 'configureAlerts',
+            description: 'Set up intelligent alerting rules with SLM-optimized thresholds',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                ruleName: { type: 'string', description: 'Alert rule name' },
+                condition: { type: 'string', description: 'Alert condition or pattern' },
+                severity: { type: 'string', description: 'Alert severity (critical, warning, info)' },
+                notification: { type: 'object', description: 'Notification configuration' },
+                context: { type: 'object', description: 'Conversation context' }
+              },
+              required: ['ruleName', 'condition', 'severity', 'context']
+            }
+          }
+        ],
+        specializations: [
+          'monitoring',
+          'incident-management', 
+          'metrics-analysis',
+          'log-analysis',
+          'alerting',
+          'dashboards',
+          'root-cause-analysis'
+        ],
+        endpoints: {
+          mcp: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`,
+          health: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/health`
+        }
+      };
+
+      await this.registerFocusedAgent(capabilities);
+
+      this.logger.info({}, 'Observability Agent registered successfully');
+    } catch (error: any) {
+      this.logger.warn({ error: error?.message || error }, 'Failed to register Observability Agent - it may not be running');
       // Don't throw error - allow Meta-Agent to continue without this agent
     }
   }

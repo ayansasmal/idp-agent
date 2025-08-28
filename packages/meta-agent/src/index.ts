@@ -7,7 +7,7 @@ import type { Logger } from 'pino';
 import dotenv from 'dotenv';
 
 // Load environment variables from root directory
-dotenv.config({ path: '../../.env' });
+dotenv.config({ path: require('path').resolve(__dirname, '../../../.env') });
 
 // Export main components
 export {
@@ -36,7 +36,7 @@ export function createMetaAgent(overrides?: Partial<MetaAgentConfig>): MetaAgent
   const config: MetaAgentConfig = {
     anthropic: process.env.ANTHROPIC_API_KEY ? {
       apiKey: process.env.ANTHROPIC_API_KEY,
-      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.ANTHROPIC_MODEL || 'claude-3-7-sonnet-latest',
       maxTokens: parseInt(process.env.ANTHROPIC_MAX_TOKENS || '4096', 10)
     } : undefined,
 
@@ -50,7 +50,7 @@ export function createMetaAgent(overrides?: Partial<MetaAgentConfig>): MetaAgent
       url: process.env.QDRANT_URL || 'http://localhost:6333',
       apiKey: process.env.QDRANT_API_KEY,
       collectionName: process.env.QDRANT_COLLECTION || 'meta_agent_context',
-      vectorSize: parseInt(process.env.QDRANT_VECTOR_SIZE || '1536', 10),
+      vectorSize: parseInt(process.env.QDRANT_VECTOR_SIZE || '384', 10),
       timeout: parseInt(process.env.QDRANT_TIMEOUT || '30000', 10)
     },
 
