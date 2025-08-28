@@ -47,7 +47,7 @@ export class InfrastructureMCPServer {
 
       this.logger.info('Infrastructure MCP Server started successfully');
     } catch (error) {
-      this.logger.error({ error }, 'Failed to start Infrastructure MCP Server');
+      this.logger.error(error, 'Failed to start Infrastructure MCP Server');
       throw error;
     }
   }
@@ -60,7 +60,7 @@ export class InfrastructureMCPServer {
       await this.server.close();
       this.logger.info('Infrastructure MCP Server stopped');
     } catch (error) {
-      this.logger.error({ error }, 'Failed to stop Infrastructure MCP Server');
+      this.logger.error(error, 'Failed to stop Infrastructure MCP Server');
     }
   }
 
@@ -277,6 +277,39 @@ export class InfrastructureHTTPServer {
         };
       });
 
+      // SSE endpoint for MCP client
+      this.fastify.get('/mcp', async (request: any, reply: any) => {
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Methods': 'GET'
+        });
+        
+        // Send initial connection event
+        reply.raw.write('data: {"jsonrpc":"2.0","method":"server/initialized","params":{}}\n\n');
+        
+        // Keep connection alive with heartbeat
+        const keepAlive = setInterval(() => {
+          if (!reply.raw.destroyed) {
+            reply.raw.write(': heartbeat\n\n');
+          }
+        }, 30000);
+        
+        // Clean up on connection close
+        request.raw.on('close', () => {
+          clearInterval(keepAlive);
+        });
+        
+        request.raw.on('error', () => {
+          clearInterval(keepAlive);
+        });
+        
+        // Don't end the response - keep it open
+      });
+
       // MCP endpoint
       this.fastify.post('/mcp', async (request: any, reply: any) => {
         try {
@@ -349,7 +382,7 @@ export class InfrastructureHTTPServer {
           };
 
         } catch (error) {
-          this.logger.error({ error }, 'MCP request failed');
+          this.logger.error(error, 'MCP request failed');
           reply.code(500);
           return {
             jsonrpc: '2.0',
@@ -411,7 +444,7 @@ export class InfrastructureHTTPServer {
           return result;
 
         } catch (error) {
-          this.logger.error({ error }, 'Direct tool call failed');
+          this.logger.error(error, 'Direct tool call failed');
           reply.code(500);
           return { error: error.message };
         }
@@ -423,7 +456,7 @@ export class InfrastructureHTTPServer {
       this.logger.info(`Infrastructure HTTP Server started on port ${port}`);
 
     } catch (error) {
-      this.logger.error({ error }, 'Failed to start Infrastructure HTTP Server');
+      this.logger.error(error, 'Failed to start Infrastructure HTTP Server');
       throw error;
     }
   }
@@ -438,7 +471,7 @@ export class InfrastructureHTTPServer {
         this.logger.info('Infrastructure HTTP Server stopped');
       }
     } catch (error) {
-      this.logger.error({ error }, 'Failed to stop Infrastructure HTTP Server');
+      this.logger.error(error, 'Failed to stop Infrastructure HTTP Server');
     }
   }
 }

@@ -46,7 +46,7 @@ npx prisma generate
 # Setup DynamoDB tables for approvals and chat sessions
 ./scripts/create-dynamodb-tables.sh
 
-# Start development (web app with integrated core agent)
+# Start development with PID tracking
 npm run dev
 ```
 
@@ -71,15 +71,16 @@ open http://localhost:3002
 
 **Note**: The web application now includes the **real PrimaryAgent** from the core package. Full integration is complete and operational.
 
-## ✅ Phase 2 Complete - Major Achievements
+## ✅ Phase 3.4 Complete - Multi-Agent Architecture + Process Management
 
-### 🏗️ Core Architecture ✅
-- [x] Modular single agent with 4 self-contained modules
-- [x] LLM-agnostic AI core (Anthropic Claude primary)
-- [x] Zero-refactoring module extraction design
-- [x] **AI-powered parameter validation** with intelligent user prompting
-- [x] **Multi-layer validation** (primary agent + module safety nets)
-- [x] Production-ready error handling and logging
+### 🏗️ Multi-Agent Architecture ✅
+- [x] **Meta-Agent**: Intelligent orchestrator with context management
+- [x] **Infrastructure Agent**: Kubernetes and cloud operations specialist  
+- [x] **MCP Communication**: Model Context Protocol for agent-to-agent communication
+- [x] **Qdrant Integration**: Vector database for shared context and learning
+- [x] **Process Management**: Complete PID tracking and service lifecycle management
+- [x] **Environment Configuration**: .env-based port and service configuration
+- [x] **Graceful Shutdown**: Clean service termination and cleanup
 
 ### 🌐 Web Application ✅
 - [x] **Next.js 15.4.6** with App Router and React 19
@@ -119,64 +120,113 @@ open http://localhost:3002
 
 ## Architecture
 
-### Modular Single Agent
-In Phase 1, we build **1 Primary Agent** with **4 self-contained modules**:
+### Multi-Agent System (Current)
+**Meta-Agent** orchestrates specialized **Focused Agents**:
 
 ```
-Primary Agent
-├── Kubernetes Module      → Future: Kubernetes Agent
-├── Safety Module          → Future: Security/Safety Agent  
-├── Approval Module        → Future: Workflow Agent
-└── Audit Module           → Future: Observability Agent
+🧠 Meta-Agent (Port 3000)
+├── Intent Classification
+├── Agent Routing  
+├── Response Coordination
+└── Context Management (Qdrant)
+
+🔧 Infrastructure Agent (Port 3003) 
+├── Kubernetes Operations
+├── Cloud Provisioning
+├── MCP Server (SSE)
+└── Resource Management
+
+🌐 Web Application (Port 3002)
+├── Chat Interface
+├── Approval Dashboard
+├── HTTP Client to Meta-Agent
+└── Real-time UI Updates
 ```
 
-### Key Design Benefits
-- **Fast Development**: Single codebase, method calls, shared state
-- **Future-Proof**: Modules designed for zero-refactoring extraction
-- **Full Functionality**: Complete platform capabilities in 8 weeks
-- **Smart Validation**: AI-powered parameter validation prevents incomplete operations
-- **Safety-First**: Comprehensive validation and human oversight
+### Key Architecture Benefits
+- **Distributed Agents**: Each agent runs independently with MCP communication
+- **Shared Intelligence**: Qdrant vector database for cross-agent context
+- **Process Management**: Complete PID tracking and service lifecycle control
+- **Environment Configuration**: Single .env file controls all service ports
+- **Graceful Operations**: Clean startup, monitoring, and shutdown
+- **HTTP Communication**: Web app connects to Meta-Agent via REST API
 
 ## Development
 
 ### Project Structure
 ```
 packages/
-├── core/                 # Main agent + modules
-├── web-app/             # ✅ Next.js + React + Tailwind (COMPLETE)
+├── meta-agent/           # 🧠 Meta-Agent (Orchestrator)
+│   ├── src/agent/       # Meta-Agent coordinator  
+│   ├── src/ai/          # LLM abstraction layer
+│   ├── src/routing/     # Intent classification & agent routing
+│   └── src/context/     # Qdrant integration & context management
+├── agents/              # 🔧 Focused Agents (Domain Specialists)
+│   └── infrastructure/  # Infrastructure Agent (MCP Server)
+├── shared/              # 📚 Shared Libraries
+│   ├── mcp-client/      # MCP client SDK
+│   ├── qdrant-client/   # Qdrant vector database client
+│   ├── types/           # Shared TypeScript definitions
+│   └── utils/           # Common utilities (HTTP, logging, errors)
+├── web-app/             # 🌐 Next.js Web Interface
 │   ├── src/app/         # App Router pages & API routes
 │   ├── src/components/  # React components (Chat, Approvals)  
-│   └── src/lib/         # Utilities and types
-├── slack-app/           # Slack integration (placeholder)
-└── cli/                 # Command-line interface (placeholder)
+│   └── src/lib/         # Web app utilities
+└── scripts/             # 🛠️ Process Management
+    ├── process-manager.js # PID tracking and service lifecycle
+    ├── cleanup.sh       # Emergency cleanup script
+    └── README.md        # Process management documentation
 ```
 
 ### Available Scripts
+
+#### 🚀 Process Management (Recommended)
 ```bash
-# Web Application (Primary Interface)
-cd packages/web-app
-npm run dev              # Start Next.js app (http://localhost:3002)
-npm run build            # Production build
-npm run start            # Production server
+npm run dev              # Start all services with PID tracking
+npm run stop             # Gracefully stop all services  
+npm run status           # Show service status and ports
+npm run restart          # Stop and restart all services
+npm run cleanup          # Emergency cleanup of stuck processes
+```
 
-# Core Agent (Backend)
-cd packages/core  
-npm run build            # Build core agent
-npm run test             # Run tests
-npm run lint             # Lint code
-npm run type-check       # TypeScript validation
+#### 🔧 Development Scripts
+```bash
+# Legacy startup (without PID tracking)
+npm run dev:legacy       # Start with concurrently (old method)
 
-# Root Level
-npm install              # Install all dependencies
-npm run dev              # Start web app with integrated core agent
-npm run dev:web          # Start web app with integrated core agent (same as above)
-npm run dev:web-standalone # Start web app standalone (embedded agent)
+# Individual services
+npm run dev:meta-agent       # Start Meta-Agent only
+npm run dev:infrastructure   # Start Infrastructure Agent only
+npm run dev:web             # Start Web App only
+
+# Build and maintenance
 npm run build            # Build all packages
+npm run test             # Run all tests
+npm run lint             # Lint all packages
+npm run type-check       # TypeScript validation
 npm run health           # Check agent health status
 ```
 
+#### 📊 Process Tracking
+The new process management system tracks:
+- **PIDs**: All service process IDs in `.pids.json`
+- **Ports**: Which service uses which port
+- **Status**: Real-time process and port status
+- **Lifecycle**: Clean startup, monitoring, and shutdown
+
+See `scripts/README.md` for detailed process management documentation.
+
 ### Environment Variables
 ```bash
+# Service Ports (configurable)
+META_AGENT_PORT=3000
+INFRASTRUCTURE_AGENT_PORT=3003  
+WEB_PORT=3002
+
+# Service URLs (for cross-service communication)
+META_AGENT_URL=http://localhost:3000
+INFRASTRUCTURE_AGENT_URL=http://localhost:3003
+
 # AI Configuration
 ANTHROPIC_API_KEY=your_anthropic_key_here
 OPENAI_API_KEY=your_openai_fallback_key
@@ -185,6 +235,8 @@ AI_PRIMARY_PROVIDER=anthropic
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/ai_idp
 REDIS_URL=redis://localhost:6379
+QDRANT_URL=your_qdrant_cloud_url
+QDRANT_API_KEY=your_qdrant_api_key
 
 # DynamoDB (for approval persistence)
 AWS_REGION=us-east-1
@@ -394,22 +446,28 @@ docker run -p 3002:3002 ai-idp-web
 
 - ✅ **Phase 1 (Complete)**: Core modular agent architecture with AI integration
 - ✅ **Phase 2 (Complete)**: Production-ready web application with approval workflow  
-- ✅ **Phase 2.6 (Complete)**: AI-powered parameter validation system
-- 🎯 **Phase 3 (Next)**: Agent extraction to distributed multi-agent system  
-- 🚀 **Phase 4 (Future)**: Advanced ecosystem with specialized agents
+- ✅ **Phase 3 (Complete)**: Multi-agent architecture with MCP communication
+- ✅ **Phase 3.4 (Complete)**: Process management and environment configuration
+- ✅ **Phase 3.5 (Complete)**: Port configuration and service communication fixes
+- 🎯 **Phase 4 (Next)**: Additional focused agents (Security, Workflow, Observability)
+- 🚀 **Phase 5 (Future)**: Self-improving agent ecosystem with advanced intelligence
 
 ## 📈 Current Status
 
-**🎉 Phase 2.6 Complete - Smart Validation Ready!**
+**🎉 Phase 3.5 Complete - Multi-Agent Architecture + Port Communication Fixed!**
 
-✅ **Web Application**: Next.js + React + Tailwind CSS  
-✅ **Chat Interface**: Natural language platform operations  
-✅ **Parameter Validation**: AI-powered validation with user prompting  
-✅ **Approval Workflow**: Human oversight with risk assessment  
-✅ **API Integration**: RESTful endpoints with full CRUD  
-✅ **End-to-End Testing**: Complete workflow validation  
+✅ **Multi-Agent System**: Meta-Agent + Infrastructure Agent with MCP communication  
+✅ **Port Configuration**: All services running on correct configured ports (3000, 3002, 3003)
+✅ **Process Management**: Complete PID tracking and service lifecycle control  
+✅ **Environment Configuration**: Single .env file controls all service ports  
+✅ **Service Communication**: Fixed port mismatches preventing agent registration
+✅ **Timeout Protection**: Graceful handling of agent registration failures
+✅ **Shared Intelligence**: Qdrant vector database for cross-agent context  
+✅ **Web Application**: HTTP client connecting to distributed agents  
+✅ **Graceful Operations**: Clean startup, monitoring, and shutdown  
 
-**🌐 Live Demo**: http://localhost:3002
+**🌐 Live Demo**: http://localhost:3002  
+**🚀 Process Management**: `npm run dev` | `npm run status` | `npm run stop`
 
 ## 📚 Documentation
 
@@ -423,7 +481,7 @@ docker run -p 3002:3002 ai-idp-web
 
 ---
 
-**Status**: ✅ **Phase 2.6 Complete - Smart Validation Ready**  
-**Current Focus**: AI-powered parameter validation with user guidance  
+**Status**: ✅ **Phase 3.5 Complete - Multi-Agent Architecture + Port Communication Fixed**  
+**Current Focus**: Operational multi-agent system with proper service communication  
 **URL**: http://localhost:3002  
-**Documentation**: Complete technical implementation available
+**Process Management**: See `scripts/README.md` for complete documentation

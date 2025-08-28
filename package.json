@@ -9,11 +9,16 @@
     "packages/agents/*"
   ],
   "scripts": {
-    "dev": "npm run dev:web",
+    "dev": "node scripts/process-manager.js start",
+    "dev:legacy": "concurrently \"npm run dev:infrastructure\" \"npm run dev:meta-agent\" \"npm run dev:web:wait\"",
+    "stop": "node scripts/process-manager.js stop",
+    "status": "node scripts/process-manager.js status", 
+    "restart": "node scripts/process-manager.js restart",
+    "cleanup": "scripts/cleanup.sh",
     "dev:web": "cd packages/web-app && npm run dev",
-    "dev:meta-agent": "cd packages/meta-agent && npm run dev",
-    "dev:infrastructure": "cd packages/agents/infrastructure && npm run dev",
-    "dev:all": "concurrently \"npm run dev:meta-agent\" \"npm run dev:infrastructure\" \"npm run dev:web\"",
+    "dev:web:wait": "sleep 8 && npm run dev:web",
+    "dev:meta-agent": "cd packages/meta-agent && PORT=$META_AGENT_PORT npm run dev",
+    "dev:infrastructure": "cd packages/agents/infrastructure && PORT=$INFRASTRUCTURE_AGENT_PORT npm run dev",
     "build": "npm run build:shared && npm run build:meta-agent && npm run build:infrastructure && npm run build:web",
     "build:shared": "npm run build:utils && npm run build:types && npm run build:mcp-client && npm run build:qdrant-client",
     "build:utils": "cd packages/shared/utils && npm run build",
@@ -69,7 +74,8 @@
     "prettier": "^3.6.2",
     "typedoc": "^0.28.11",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.4"
   },
   "engines": {
     "node": ">=20.0.0",

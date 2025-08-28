@@ -12,7 +12,6 @@ import {
 import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
 import { MCPAgentClient } from '@ai-idp/mcp-client';
-import { InfrastructureAgent } from '@ai-idp/infrastructure-agent';
 import type {
   ConversationContext,
   AgentIntent,
@@ -57,7 +56,7 @@ export interface MetaAgentConfig {
 const MetaAgentConfigSchema = z.object({
   anthropic: z.object({
     apiKey: z.string(),
-    model: z.string().default('claude-3-5-sonnet-20241022'),
+    model: z.string().default('claude-3-7-sonnet-latest'),
     maxTokens: z.number().default(4096)
   }).optional(),
   openai: z.object({
@@ -175,13 +174,12 @@ export class MetaAgent {
       url: this.config.qdrant.url,
       apiKey: this.config.qdrant.apiKey,
       collectionName: this.config.qdrant.collectionName,
-      vectorSize: this.config.qdrant.vectorSize || 1536,
+      vectorSize: this.config.qdrant.vectorSize || 384, // Updated for local embeddings
       timeout: this.config.qdrant.timeout || 30000
     };
-    
+
     this.qdrantClient = new QdrantContextClient(
       qdrantConfig,
-      this.config.openai?.apiKey || this.config.anthropic?.apiKey || '',
       this.logger
     );
 
@@ -285,9 +283,9 @@ export class MetaAgent {
         await this.registerAvailableAgents();
         this.logger.info({}, 'Focused agents registered');
       } catch (error) {
-        this.logger.warn({ 
+        this.logger.warn({
           error: error?.message || String(error),
-          stack: error?.stack 
+          stack: error?.stack
         }, 'Agent registration failed - continuing without focused agents');
         if (process.env.NODE_ENV !== 'development') {
           throw error;
@@ -298,7 +296,7 @@ export class MetaAgent {
       this.logger.info({}, 'Meta-Agent initialized successfully');
 
     } catch (error: any) {
-      this.logger.error({ 
+      this.logger.error({
         error: error?.message || String(error),
         stack: error?.stack,
         code: error?.code,
@@ -375,15 +373,20 @@ export class MetaAgent {
         specializations: capabilities.specializations
       }, `Registering focused agent: ${capabilities.agentId}`);
 
-      // Register with MCP client
-      await this.mcpClient.registerAgent(capabilities);
+      // Register with MCP client with timeout
+      const registrationPromise = this.mcpClient.registerAgent(capabilities);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Registration timeout after 10 seconds')), 10000);
+      });
+
+      await Promise.race([registrationPromise, timeoutPromise]);
 
       // Store in local registry
       this.registeredAgents.set(capabilities.agentId, capabilities);
 
       this.logger.info({}, `Successfully registered focused agent: ${capabilities.agentId}`);
     } catch (error: any) {
-      this.logger.error({ error: error?.message || error }, `Failed to register focused agent: ${capabilities.agentId}`);
+      this.logger.error(error, `Failed to register focused agent: ${capabilities.agentId}`);
       throw error;
     }
   }
@@ -409,7 +412,7 @@ export class MetaAgent {
       }, 'Successfully registered all available focused agents');
 
     } catch (error: any) {
-      this.logger.error({ error: error?.message || error }, 'Failed to register available agents');
+      this.logger.error(error, 'Failed to register available agents');
       throw error;
     }
   }
@@ -419,31 +422,34 @@ export class MetaAgent {
    */
   private async registerInfrastructureAgent(): Promise<void> {
     try {
-      // Create Infrastructure Agent instance with default config
-      const infrastructureConfig = {
+      // Define Infrastructure Agent capabilities without creating a local instance
+      const capabilities = {
         agentId: 'infrastructure',
         name: 'Infrastructure Agent',
-        kubeconfig: process.env.KUBECONFIG || '',
-        qdrant: this.config.qdrant ? {
-          url: this.config.qdrant.url,
-          apiKey: this.config.qdrant.apiKey,
-          collectionName: 'infrastructure_context',
-          vectorSize: this.config.qdrant.vectorSize || 1536,
-          timeout: this.config.qdrant.timeout || 30000
-        } : undefined
-      };
-
-      const infrastructureAgent = new InfrastructureAgent(infrastructureConfig);
-      const capabilities = infrastructureAgent.getCapabilities();
-
-      // Update endpoints for MCP communication
-      capabilities.endpoints = {
-        mcp: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
-        health: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/health`
+        description: 'Kubernetes and Cloud Operations Specialist',
+        tools: [
+          'deploy-application',
+          'scale-resource', 
+          'get-resource-status',
+          'get-resource-logs',
+          'provision-database'
+        ],
+        specializations: [
+          'kubernetes',
+          'deployment', 
+          'scaling',
+          'monitoring',
+          'cloud-provisioning',
+          'container-orchestration'
+        ],
+        endpoints: {
+          mcp: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
+          health: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/health`
+        }
       };
 
       await this.registerFocusedAgent(capabilities);
-      
+
       this.logger.info({}, 'Infrastructure Agent registered successfully');
     } catch (error: any) {
       this.logger.warn({ error: error?.message || error }, 'Failed to register Infrastructure Agent - it may not be running');
@@ -916,7 +922,7 @@ export class MetaAgent {
         }
       };
     } catch (error: any) {
-      this.logger.error({ error: error.message }, 'Failed to get approval module');
+      this.logger.error(error, 'Failed to get approval module');
       return {
         success: false,
         message: `Failed to access approval module: ${error.message}`
@@ -932,7 +938,7 @@ export class MetaAgent {
     try {
       // Map web app action to approval module action
       const moduleAction = action === 'approve' ? 'approve' : 'reject';
-      
+
       const request = {
         requestId: uuidv4(),
         module: 'approval',
@@ -962,12 +968,12 @@ export class MetaAgent {
         data: { approvalId: id, action, reviewedBy, reviewNotes, status: 'placeholder' }
       };
     } catch (error: any) {
-      this.logger.error({ 
-        error: error.message, 
-        action, 
-        approvalId: id 
+      this.logger.error({
+        error: error.message,
+        action,
+        approvalId: id
       }, 'Failed to process approval action');
-      
+
       return {
         success: false,
         message: `Failed to ${action} approval: ${error.message}`
@@ -1026,7 +1032,7 @@ export class MetaAgent {
       await this.mcpClient.cleanup();
       this.logger.info({}, 'Meta-Agent cleanup completed');
     } catch (error: any) {
-      this.logger.error({ error: error?.message || error }, 'Meta-Agent cleanup failed');
+      this.logger.error(error, 'Meta-Agent cleanup failed');
       throw error;
     }
   }

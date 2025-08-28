@@ -91,7 +91,7 @@ const DEFAULT_RETRY_OPTIONS: RetryOptions = {
  */
 export function createHttpClient(config: HttpClientConfig, logger: Logger): AxiosInstance {
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
-  
+
   const client = axios.create({
     timeout: finalConfig.timeout,
     baseURL: finalConfig.baseURL,
@@ -108,9 +108,9 @@ export function createHttpClient(config: HttpClientConfig, logger: Logger): Axio
     (config: InternalAxiosRequestConfig & { metadata?: RequestMetadata }) => {
       const startTime = Date.now();
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
+
       config.metadata = { startTime, requestId };
-      
+
       logger.debug({
         requestId,
         method: config.method?.toUpperCase(),
@@ -119,11 +119,11 @@ export function createHttpClient(config: HttpClientConfig, logger: Logger): Axio
         headers: sanitizeHeaders(config.headers),
         timeout: config.timeout
       }, 'HTTP Request');
-      
+
       return config;
     },
     (error: any) => {
-      logger.error({ error: error.message }, 'HTTP Request Error');
+      logger.error(error, 'HTTP Request Error');
       return Promise.reject(error);
     }
   );
@@ -132,7 +132,7 @@ export function createHttpClient(config: HttpClientConfig, logger: Logger): Axio
   client.interceptors.response.use(
     (response: AxiosResponse & { config: InternalAxiosRequestConfig & { metadata?: RequestMetadata } }) => {
       const duration = Date.now() - response.config.metadata!.startTime;
-      
+
       logger.info({
         requestId: response.config.metadata?.requestId,
         method: response.config.method?.toUpperCase(),
@@ -141,14 +141,14 @@ export function createHttpClient(config: HttpClientConfig, logger: Logger): Axio
         duration,
         responseSize: JSON.stringify(response.data).length
       }, 'HTTP Response');
-      
+
       return response;
     },
     (error: AxiosError & { config?: InternalAxiosRequestConfig & { metadata?: RequestMetadata } }) => {
-      const duration = error.config?.metadata?.startTime 
-        ? Date.now() - error.config.metadata.startTime 
+      const duration = error.config?.metadata?.startTime
+        ? Date.now() - error.config.metadata.startTime
         : 0;
-      
+
       logger.error({
         requestId: error.config?.metadata?.requestId,
         method: error.config?.method?.toUpperCase(),
@@ -158,7 +158,7 @@ export function createHttpClient(config: HttpClientConfig, logger: Logger): Axio
         error: error.message,
         code: error.code
       }, 'HTTP Error');
-      
+
       return Promise.reject(error);
     }
   );
@@ -222,13 +222,13 @@ export async function withRetry<T>(
 ): Promise<T> {
   const finalOptions = { ...DEFAULT_RETRY_OPTIONS, ...options };
   let lastError: any;
-  
+
   for (let attempt = 0; attempt <= finalOptions.maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error) {
       lastError = error;
-      
+
       if (attempt === finalOptions.maxRetries) {
         throw error;
       }
@@ -239,18 +239,18 @@ export async function withRetry<T>(
       }
 
       const delay = finalOptions.retryDelay * Math.pow(2, attempt);
-      
+
       logger?.warn({
         attempt: attempt + 1,
         maxRetries: finalOptions.maxRetries,
         delay,
         error: (error as Error).message
       }, 'Retrying HTTP request');
-      
+
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-  
+
   throw lastError;
 }
 
@@ -298,10 +298,10 @@ function isRetryableError(error: AxiosError, options: RetryOptions): boolean {
  */
 function sanitizeHeaders(headers: any): any {
   if (!headers) return {};
-  
+
   const sanitized = { ...headers };
   const sensitiveHeaders = ['authorization', 'cookie', 'x-api-key', 'api-key', 'x-auth-token'];
-  
+
   sensitiveHeaders.forEach(header => {
     const lowerHeader = header.toLowerCase();
     Object.keys(sanitized).forEach(key => {
@@ -310,6 +310,6 @@ function sanitizeHeaders(headers: any): any {
       }
     });
   });
-  
+
   return sanitized;
 }

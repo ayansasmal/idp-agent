@@ -1,26 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OperationRequestSchema } from "@/lib/types";
 import { z } from "zod";
-import { MetaAgent, createMetaAgent } from "@ai-idp/meta-agent";
 import { ConversationContext } from "@ai-idp/types";
 import { sessionManager, ConversationMessage } from "@/lib/session-manager";
 
-// Global agent instance
-let metaAgent: MetaAgent | null = null;
+// Meta Agent HTTP client
+const META_AGENT_URL = process.env.META_AGENT_URL || 'http://localhost:3000';
 
-// Initialize agent on startup
-async function getAgent(): Promise<MetaAgent> {
-  if (!metaAgent) {
-    try {
-      metaAgent = createMetaAgent();
-      await metaAgent.initialize();
-      console.log('Meta Agent initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize Meta Agent:', error);
-      throw new Error('Agent initialization failed');
+async function callMetaAgent(endpoint: string, method: string = 'GET', body?: any) {
+  try {
+    const response = await fetch(`${META_AGENT_URL}${endpoint}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Meta Agent ${method} ${endpoint} failed: ${response.status}`);
     }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`Failed to call Meta Agent ${endpoint}:`, error);
+    throw error;
   }
-  return metaAgent;
 }
 
 export async function POST(req: NextRequest) {
@@ -105,11 +108,11 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    // Get the meta agent instance
-    const agent = await getAgent();
-
-    // Process the request with MetaAgent using enhanced input with conversation context
-    const result = await agent.processRequest(enhancedUserInput, conversationContext);
+    // Call Meta Agent chat endpoint
+    const result = await callMetaAgent('/chat', 'POST', {
+      userInput: enhancedUserInput,
+      context: conversationContext
+    });
 
     // Track deployed resources in session context
     if (result.success && result.data) {
@@ -246,31 +249,29 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   try {
-    console.log('Getting Meta Agent for health check...');
-    const agent = await getAgent();
-    console.log('Meta Agent obtained, calling getAgentStatus...');
-    const status = await agent.getAgentStatus();
-    console.log('Agent status received:', status);
+    console.log('Calling Meta Agent health endpoint...');
+    const health = await callMetaAgent('/health');
+    console.log('Meta Agent health received:', health);
 
     return NextResponse.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
       agentReady: true,
       type: "meta-agent",
-      registeredAgents: Object.keys(status),
-      agentStatus: status,
+      registeredAgents: health.focusedAgents?.length || 0,
+      agentStatus: health,
     });
   } catch (error: any) {
     console.error('Health check failed:', error);
     console.error('Error stack:', error.stack);
     return NextResponse.json(
       {
-        status: "unhealthy",
+        status: "unhealthy", 
         error: error.message,
         timestamp: new Date().toISOString(),
         agentReady: false,
         type: "meta-agent",
-        registeredAgents: [],
+        registeredAgents: 0,
       },
       { status: 500 }
     );

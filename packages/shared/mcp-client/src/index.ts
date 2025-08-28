@@ -1,8 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { 
-  createHttpClient, 
+import {
+  createHttpClient,
   createLogger,
   withRetry,
   validateData,
@@ -107,11 +107,11 @@ export class MCPAgentClient {
   constructor(config: MCPConfig, loggerConfig?: Partial<ServiceLoggerConfig>) {
     // Validate configuration using utils
     this.config = validateData(
-      config, 
-      configSchemas.mcp, 
+      config,
+      configSchemas.mcp,
       { service: 'mcp-client', operation: 'constructor' }
     );
-    
+
     // Create logger using utils
     this.logger = createLogger({
       service: 'mcp-client',
@@ -119,7 +119,7 @@ export class MCPAgentClient {
       environment: (process.env.NODE_ENV as any) || 'development',
       ...loggerConfig
     });
-    
+
     // Create HTTP client using utils
     const httpConfig: HttpClientConfig = {
       timeout: this.config.clientTimeout,
@@ -127,7 +127,7 @@ export class MCPAgentClient {
       retryDelay: this.config.retryDelay,
       userAgent: 'AI-IDP MCP-Client/1.0.0'
     };
-    
+
     this.httpClient = createHttpClient(httpConfig, this.logger);
   }
 
@@ -179,8 +179,8 @@ export class MCPAgentClient {
         { service: 'mcp-client', operation: 'registerAgent' },
         { cause: error as Error }
       );
-      
-      this.logger.error({ error: serviceError }, serviceError.message);
+
+      this.logger.error(serviceError, serviceError.message);
       throw serviceError;
     }
   }
@@ -210,7 +210,7 @@ export class MCPAgentClient {
         { service: 'mcp-client', operation: 'unregisterAgent' },
         { cause: error as Error }
       );
-      
+
       this.logger.error({ error: serviceError }, serviceError.message);
       throw serviceError;
     }
@@ -398,8 +398,8 @@ export class MCPAgentClient {
           entry.lastHealthCheck = new Date();
           healthStatus[agentId] = false;
 
-          this.logger.error({ 
-            error: error instanceof Error ? error.message : String(error) 
+          this.logger.error({
+            error: error instanceof Error ? error.message : String(error)
           }, `Agent health check failed: ${agentId}`);
         }
       }
@@ -447,8 +447,8 @@ export class MCPAgentClient {
             results[agentId] = false; // Agent doesn't support notifications
           }
         } catch (error) {
-          this.logger.error({ 
-            error: error instanceof Error ? error.message : String(error) 
+          this.logger.error({
+            error: error instanceof Error ? error.message : String(error)
           }, `Broadcast failed to agent: ${agentId}`);
           results[agentId] = false;
         }

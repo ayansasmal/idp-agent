@@ -371,7 +371,7 @@ export class ContextManager {
       this.logger.info('Context cleanup completed');
 
     } catch (error) {
-      this.logger.error({ error: error?.message || error }, 'Context cleanup failed');
+      this.logger.error(error, 'Context cleanup failed');
     }
   }
 }

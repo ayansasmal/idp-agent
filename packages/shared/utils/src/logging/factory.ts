@@ -47,7 +47,7 @@ const DEFAULT_CONFIG: Required<Omit<ServiceLoggerConfig, 'service'>> = {
  * });
  * 
  * logger.info({ deploymentId: 'nginx-123' }, 'Starting deployment');
- * logger.error({ error: err.message }, 'Deployment failed');
+ * logger.error(err, 'Deployment failed');
  * ```
  * 
  * @example Development Logger with Pretty Printing
@@ -79,10 +79,10 @@ const DEFAULT_CONFIG: Required<Omit<ServiceLoggerConfig, 'service'>> = {
  */
 export function createLogger(config: ServiceLoggerConfig): Logger {
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
-  
+
   const pinoOptions: LoggerOptions = {
     level: finalConfig.level,
-    
+
     // Base context that appears in every log
     base: {
       service: finalConfig.service,
@@ -309,30 +309,30 @@ export async function logExecutionTimeAsync<T>(
   fn: () => Promise<T>
 ): Promise<T> {
   const startTime = Date.now();
-  
+
   logger.debug({ operation }, 'Operation started');
-  
+
   try {
     const result = await fn();
     const duration = Date.now() - startTime;
-    
+
     logger.info({
       operation,
       duration,
       success: true
     }, 'Operation completed');
-    
+
     return result;
   } catch (error) {
     const duration = Date.now() - startTime;
-    
+
     logger.error({
       operation,
       duration,
       success: false,
       error: error instanceof Error ? error.message : String(error)
     }, 'Operation failed');
-    
+
     throw error;
   }
 }

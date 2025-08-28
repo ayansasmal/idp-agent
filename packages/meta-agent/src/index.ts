@@ -6,8 +6,8 @@ import { createLogger } from '@ai-idp/utils';
 import type { Logger } from 'pino';
 import dotenv from 'dotenv';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from root directory
+dotenv.config({ path: '../../.env' });
 
 // Export main components
 export {
@@ -63,6 +63,8 @@ export function createMetaAgent(overrides?: Partial<MetaAgentConfig>): MetaAgent
 
     ...overrides
   };
+
+  logger.info({ config }, 'Meta-Agent configuration initialized');
 
   return new MetaAgent(config, logger);
 }
@@ -120,7 +122,7 @@ export async function startMetaAgentService(port: number = 3000): Promise<void> 
         return response;
 
       } catch (error) {
-        logger.error({ error: error?.message || error }, 'Request processing failed');
+        logger.error(error, 'Request processing failed');
         reply.code(500);
         return { error: 'Internal server error' };
       }
@@ -147,7 +149,7 @@ export async function startMetaAgentService(port: number = 3000): Promise<void> 
               }));
             }
           } catch (error) {
-            logger.error({ error: error?.message || error }, 'WebSocket message processing failed');
+            logger.error(error, 'WebSocket message processing failed');
             connection.socket.send(JSON.stringify({
               type: 'error',
               error: 'Failed to process message'
@@ -175,7 +177,7 @@ export async function startMetaAgentService(port: number = 3000): Promise<void> 
     });
 
   } catch (error) {
-    logger.error({ error: error?.message || error }, 'Failed to start Meta-Agent service');
+    logger.error(error, 'Failed to start Meta-Agent service');
     process.exit(1);
   }
 }

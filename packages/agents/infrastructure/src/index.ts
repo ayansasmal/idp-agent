@@ -101,7 +101,7 @@ export async function startInfrastructureAgentService(
     }
 
   } catch (error) {
-    logger.error({ error }, 'Failed to start Infrastructure Agent service');
+    logger.error(error, 'Failed to start Infrastructure Agent service');
     process.exit(1);
   }
 }
@@ -159,7 +159,7 @@ export async function runInfrastructureOperation(
     return result;
 
   } catch (error) {
-    logger.error({ error, operation }, 'Infrastructure operation failed');
+    logger.error(error, 'Infrastructure operation failed');
     throw error;
   }
 }
@@ -170,7 +170,7 @@ if (require.main === module) {
 
   if (args.length === 0) {
     // Start as service
-    const port = parseInt(process.env.PORT || '3001', 10);
+    const port = parseInt(process.env.INFRASTRUCTURE_AGENT_PORT || process.env.PORT || '3003', 10);
     const mode = (process.env.MCP_MODE as 'http' | 'stdio') || 'http';
     startInfrastructureAgentService(port, mode);
   } else {

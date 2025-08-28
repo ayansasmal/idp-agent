@@ -153,7 +153,7 @@ const InfrastructureAgentConfigSchema = z.object({
  * Validated configuration type with defaults applied
  * This represents the actual config after Zod validation with defaults filled in
  */
-type ValidatedInfrastructureAgentConfig = Required<Pick<InfrastructureAgentConfig, 'agentId' | 'name'>> & 
+type ValidatedInfrastructureAgentConfig = Required<Pick<InfrastructureAgentConfig, 'agentId' | 'name'>> &
   Omit<InfrastructureAgentConfig, 'agentId' | 'name'>;
 
 export class InfrastructureAgent {
@@ -218,10 +218,9 @@ export class InfrastructureAgent {
         vectorSize: this.config.qdrant.vectorSize || 1536,
         timeout: this.config.qdrant.timeout || 30000
       };
-      
+
       this.qdrantClient = new QdrantContextClient(
         qdrantConfig,
-        process.env.OPENAI_API_KEY || '',
         this.logger
       );
     }
@@ -283,7 +282,7 @@ export class InfrastructureAgent {
       this.logger.info('Infrastructure Agent initialized successfully');
 
     } catch (error) {
-      this.logger.error({ error }, 'Failed to initialize Infrastructure Agent');
+      this.logger.error(error, 'Failed to initialize Infrastructure Agent');
       throw error;
     }
   }

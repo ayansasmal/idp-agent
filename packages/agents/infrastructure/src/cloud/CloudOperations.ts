@@ -41,7 +41,7 @@ export class CloudOperations {
       this.logger.info({}, 'Cloud operations initialized successfully');
 
     } catch (error) {
-      this.logger.error({ error }, 'Failed to initialize Cloud Operations');
+      this.logger.error(error, 'Failed to initialize Cloud Operations');
       // Don't throw - allow agent to work without cloud operations
     }
   }
@@ -109,7 +109,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Database provisioning failed');
+      this.logger.error(error, 'Database provisioning failed');
       throw error;
     }
   }
@@ -161,7 +161,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Storage creation failed');
+      this.logger.error(error, 'Storage creation failed');
       throw error;
     }
   }
@@ -211,7 +211,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Function deployment failed');
+      this.logger.error(error, 'Function deployment failed');
       throw error;
     }
   }
@@ -258,7 +258,7 @@ export class CloudOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Secret management failed');
+      this.logger.error(error, 'Secret management failed');
       throw error;
     }
   }
@@ -303,7 +303,7 @@ export class CloudOperations {
     environment: string
   ): any {
     const sizeConfig = this.getDatabaseSizeConfig(size);
-    
+
     return {
       apiVersion: 'database.platformref.crossplane.io/v1alpha1',
       kind: 'XPostgreSQLInstance',
@@ -421,9 +421,9 @@ export class CloudOperations {
     name: string,
     environment: string
   ): any {
-    const port = databaseType === 'postgresql' ? 5432 : 
-                 databaseType === 'mysql' ? 3306 : 
-                 databaseType === 'redis' ? 6379 : 5432;
+    const port = databaseType === 'postgresql' ? 5432 :
+      databaseType === 'mysql' ? 3306 :
+        databaseType === 'redis' ? 6379 : 5432;
 
     return {
       host: `${name}-${environment}.rds.amazonaws.com`,
@@ -456,7 +456,7 @@ export class CloudOperations {
   // Simulation methods
   private simulateDatabaseProvisioning(params: any): any {
     this.logger.info({ params }, 'Simulating database provisioning (Crossplane not available)');
-    
+
     const connectionDetails = this.generateDatabaseConnectionDetails(
       params.databaseType,
       params.name,
@@ -478,7 +478,7 @@ export class CloudOperations {
 
   private simulateStorageCreation(params: any): any {
     this.logger.info({ params }, 'Simulating storage creation (Crossplane not available)');
-    
+
     return {
       success: true,
       message: `Simulated ${params.storageType} storage creation: ${params.name}`,
@@ -494,7 +494,7 @@ export class CloudOperations {
 
   private simulateFunctionDeployment(params: any): any {
     this.logger.info({ params }, 'Simulating function deployment (Crossplane not available)');
-    
+
     return {
       success: true,
       message: `Simulated function deployment: ${params.functionName}`,

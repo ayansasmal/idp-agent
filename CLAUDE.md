@@ -683,7 +683,122 @@ packages/
 
 **Status**: ✅ **Complete** - Architecture streamlined, legacy packages removed, build verified
 
-**Phase 3.5: Remaining Focused Agents**
+### ✅ Phase 3.5: Port Configuration and Service Communication Fixes (COMPLETE)
+**Goal**: Resolve port mismatch issues preventing proper multi-agent communication
+
+**Problem Identified:**
+- **Infrastructure Agent**: Hardcoded to port 3001 instead of configured INFRASTRUCTURE_AGENT_PORT (3003)
+- **Meta-Agent**: Configured to connect to Infrastructure Agent on port 3003 via MCP, but agent was running on 3001
+- **Connection Refused**: `connect ECONNREFUSED ::1:3003` - Meta-Agent couldn't connect to Infrastructure Agent
+- **Registration Hanging**: Meta-Agent hung indefinitely during MCP agent registration
+- **Circular Dependencies**: Meta-Agent was creating local InfrastructureAgent instances causing blocking behavior
+
+**Technical Root Causes:**
+1. **Port Hardcoding**: Infrastructure Agent used `process.env.PORT || '3001'` instead of respecting `INFRASTRUCTURE_AGENT_PORT`
+2. **MCP Server Port Mismatch**: Meta-Agent expected Infrastructure Agent on port 3003, but it was running on 3001
+3. **Process Manager Environment**: Service-specific environment variables weren't properly passed to child processes
+4. **Agent Registration Logic**: Meta-Agent was instantiating InfrastructureAgent locally instead of connecting via MCP
+5. **No Connection Timeout**: MCP client registration had no timeout, causing indefinite hangs
+
+**✅ Comprehensive Fixes Implemented:**
+
+**1. Infrastructure Agent Port Configuration**
+- **File**: `packages/agents/infrastructure/src/index.ts:173`
+- **Change**: `process.env.PORT || '3001'` → `process.env.INFRASTRUCTURE_AGENT_PORT || process.env.PORT || '3003'`
+- **Result**: Infrastructure Agent now properly reads `INFRASTRUCTURE_AGENT_PORT` from environment
+
+**2. Process Manager Environment Variables**
+- **File**: `scripts/process-manager.js:122-130`
+- **Enhancement**: Added service-specific environment variable mapping
+- **Implementation**:
+  ```javascript
+  const serviceEnv = { ...process.env };
+  if (name === 'infrastructure-agent') {
+    serviceEnv.PORT = process.env.INFRASTRUCTURE_AGENT_PORT || 3003;
+  } else if (name === 'meta-agent') {
+    serviceEnv.PORT = process.env.META_AGENT_PORT || 3000;
+  }
+  ```
+- **Result**: Each service receives correct PORT environment variable
+
+**3. MCP Communication Configuration**
+- **File**: `.env:48`
+- **Addition**: `MCP_SERVER_PORT=3003` for Meta-Agent MCP client configuration
+- **Result**: Meta-Agent now connects to Infrastructure Agent on correct port (3003)
+
+**4. Meta-Agent Registration Architecture Fix**
+- **File**: `packages/meta-agent/src/agent/MetaAgent.ts:419-454`
+- **Problem**: Creating local `InfrastructureAgent` instances causing circular dependencies and blocking
+- **Solution**: Replaced local instantiation with static capabilities definition
+- **Before**: `const infrastructureAgent = new InfrastructureAgent(config);`
+- **After**: Static capabilities object with predefined tools and specializations
+- **Result**: Eliminated circular dependencies and blocking behavior
+
+**5. Dependency Cleanup**
+- **File**: `packages/meta-agent/package.json:15`
+- **Removed**: `@ai-idp/infrastructure-agent` dependency (no longer needed for local instantiation)
+- **File**: `packages/meta-agent/src/agent/MetaAgent.ts:15`
+- **Removed**: `import { InfrastructureAgent } from '@ai-idp/infrastructure-agent';`
+- **Result**: Clean separation between Meta-Agent and Infrastructure Agent
+
+**6. Registration Timeout Protection**
+- **File**: `packages/meta-agent/src/agent/MetaAgent.ts:376-382`
+- **Enhancement**: Added 10-second timeout to MCP agent registration
+- **Implementation**:
+  ```typescript
+  const registrationPromise = this.mcpClient.registerAgent(capabilities);
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Registration timeout after 10 seconds')), 10000);
+  });
+  await Promise.race([registrationPromise, timeoutPromise]);
+  ```
+- **Result**: Meta-Agent no longer hangs indefinitely; gracefully handles registration failures
+
+**✅ Service Communication Flow (Fixed):**
+```
+┌─────────────────┐    MCP/SSE     ┌──────────────────────┐
+│   Meta-Agent    │ ──────────────>│ Infrastructure Agent │
+│   Port: 3000    │   Port: 3003   │    Port: 3003       │
+└─────────────────┘                └──────────────────────┘
+         │                                     │
+         │ HTTP API                            │ K8s API
+         ▼                                     ▼
+┌─────────────────┐                ┌──────────────────────┐
+│    Web App      │                │   Kubernetes API     │
+│   Port: 3002    │                │      Server          │
+└─────────────────┘                └──────────────────────┘
+```
+
+**✅ Final Service Status:**
+```bash
+📊 Service Status:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+infrastructure-agent │ Port 3003 🟢 │ 🟢 Running & Healthy
+meta-agent           │ Port 3000 🟢 │ 🟢 Running & Healthy  
+web-app              │ Port 3002 🟢 │ 🟢 Running & Healthy
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Key Achievements:**
+- ✅ **Port Alignment**: All services running on correct configured ports
+- ✅ **MCP Communication**: Meta-Agent connects to Infrastructure Agent successfully
+- ✅ **Timeout Protection**: No more indefinite hangs during agent registration
+- ✅ **Clean Architecture**: Eliminated circular dependencies between agents
+- ✅ **Environment Configuration**: Proper service-specific environment variable handling
+- ✅ **Graceful Degradation**: Meta-Agent continues operation even if agent registration fails
+- ✅ **Process Management**: Complete PID tracking and service lifecycle control
+
+**Technical Benefits:**
+- **Performance**: Faster startup with eliminated blocking behavior
+- **Reliability**: Timeout protection prevents system hangs
+- **Maintainability**: Clean separation of concerns between agents
+- **Scalability**: Proper MCP communication foundation for additional agents
+- **Debugging**: Clear error messages and timeout handling
+- **Configuration**: Environment-based port management for different deployment scenarios
+
+**Status**: ✅ **Complete** - All port mismatches resolved, multi-agent communication operational
+
+**Phase 3.6: Remaining Focused Agents**
 - Extract SafetyModule → Security Agent MCP server
 - Extract ApprovalModule → Workflow Agent MCP server  
 - Extract AuditModule → Observability Agent MCP server

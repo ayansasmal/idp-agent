@@ -30,11 +30,13 @@ export class KubernetesOperations {
 
       const kc = new k8s.KubeConfig();
 
+      this.logger.info({ kubeconfigProvided: this.config.kubeconfig }, 'Kubeconfig provided');
+
       // Try to load kubeconfig
       if (this.config.kubeconfig) {
         // Load from provided config
-        kc.loadFromString(this.config.kubeconfig);
-        this.logger.info({}, 'Loaded provided Kubernetes config');
+        kc.loadFromFile(this.config.kubeconfig);
+        this.logger.info({ config: this.config.kubeconfig }, 'Loaded provided Kubernetes config');
       } else {
         try {
           // Try in-cluster config first
@@ -66,7 +68,7 @@ export class KubernetesOperations {
       this.logger.info({}, 'Kubernetes operations initialized successfully');
 
     } catch (error) {
-      this.logger.error({ error }, 'Failed to initialize Kubernetes operations');
+      this.logger.error(error, 'Failed to initialize Kubernetes operations');
       throw error;
     }
   }
@@ -155,7 +157,7 @@ export class KubernetesOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Deployment failed');
+      this.logger.error(error, 'Deployment failed');
       throw error;
     }
   }
@@ -230,7 +232,7 @@ export class KubernetesOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Scaling failed');
+      this.logger.error(error, 'Scaling failed');
       throw error;
     }
   }
@@ -272,7 +274,7 @@ export class KubernetesOperations {
         };
       }
 
-      this.logger.error({ error, params }, 'Status check failed');
+      this.logger.error(error, 'Status check failed');
       throw error;
     }
   }
@@ -338,7 +340,7 @@ export class KubernetesOperations {
       };
 
     } catch (error) {
-      this.logger.error({ error, params }, 'Log retrieval failed');
+      this.logger.error(error, 'Log retrieval failed');
       throw error;
     }
   }

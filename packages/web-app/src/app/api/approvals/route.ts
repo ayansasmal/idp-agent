@@ -10,25 +10,28 @@ type RequestContext = {
   timestamp: string;
 };
 import { ApprovalSchema, type Approval } from "@/lib/types";
-import { MetaAgent, createMetaAgent } from "@ai-idp/meta-agent";
 import { z } from "zod";
 
-// Global agent instance
-let metaAgent: MetaAgent | null = null;
+// Meta Agent HTTP client
+const META_AGENT_URL = process.env.META_AGENT_URL || 'http://localhost:3000';
 
-// Initialize agent on startup
-async function getAgent(): Promise<MetaAgent> {
-  if (!metaAgent) {
-    try {
-      metaAgent = createMetaAgent();
-      await metaAgent.initialize();
-      console.log('Meta Agent initialized for approvals API');
-    } catch (error) {
-      console.error('Failed to initialize Meta Agent for approvals:', error);
-      throw new Error('Agent initialization failed');
+async function callMetaAgent(endpoint: string, method: string = 'GET', body?: any) {
+  try {
+    const response = await fetch(`${META_AGENT_URL}${endpoint}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Meta Agent ${method} ${endpoint} failed: ${response.status}`);
     }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`Failed to call Meta Agent ${endpoint}:`, error);
+    throw error;
   }
-  return metaAgent;
 }
 
 // Convert core approval format to web app format
@@ -67,18 +70,18 @@ function convertToWebApproval(coreApproval: any): Approval {
 
 export async function GET() {
   try {
-    const agent = await getAgent();
+    // Call Meta Agent approvals endpoint
+    const result = await callMetaAgent('/approvals');
 
-    // Use direct approval module access (bypasses AI processing)
-    const result = await agent.getApprovalModule();
-
-    if (!result.success) {
-      throw new Error(result.message || "Failed to fetch approvals from approval module");
+    if (!result.success && result.success !== undefined) {
+      throw new Error(result.message || "Failed to fetch approvals from Meta Agent");
     }
 
-    // Convert core approval format to web app format
-    const coreApprovals = result.result?.pendingApprovals || [];
-    const webApprovals = coreApprovals.map(convertToWebApproval);
+    // Handle different response formats
+    const coreApprovals = result.result?.pendingApprovals || result.approvals || result || [];
+    const webApprovals = Array.isArray(coreApprovals) 
+      ? coreApprovals.map(convertToWebApproval)
+      : [];
 
     // Sort by creation date, newest first
     const sortedApprovals = webApprovals.sort((a: any, b: any) =>
@@ -87,7 +90,7 @@ export async function GET() {
 
     return NextResponse.json(sortedApprovals);
   } catch (error: any) {
-    console.error("Failed to fetch approvals from approval module:", error);
+    console.error("Failed to fetch approvals from Meta Agent:", error);
     return NextResponse.json(
       { error: "Failed to fetch approvals", message: error.message },
       { status: 500 }
@@ -113,27 +116,22 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { state, reviewNotes, reviewedBy } = body;
 
-    const agent = await getAgent();
-
-    // Create context for the approval action
-    const context: RequestContext = {
-      userId: reviewedBy || "web-user",
-      sessionId: `web-session-${Date.now()}`,
-      originalRequest: `${state.toLowerCase()} approval ${id}`,
-      environment: "development",
-      permissions: ["read", "write", "deploy", "approve"],
-      auditTrail: [],
-      timestamp: new Date().toISOString(),
-    };
-
     let result;
 
     if (state === "APPROVED") {
-      // Approve the request using direct approval module access
-      result = await agent.processApprovalAction("approve", id, reviewedBy || "web-user", reviewNotes);
+      // Call Meta Agent approve endpoint
+      result = await callMetaAgent('/approvals/approve', 'POST', {
+        id,
+        approverId: reviewedBy || "web-user",
+        comments: reviewNotes
+      });
     } else if (state === "REJECTED") {
-      // Reject the request using direct approval module access
-      result = await agent.processApprovalAction("reject", id, reviewedBy || "web-user", reviewNotes);
+      // Call Meta Agent reject endpoint
+      result = await callMetaAgent('/approvals/reject', 'POST', {
+        id,
+        approverId: reviewedBy || "web-user", 
+        comments: reviewNotes
+      });
     } else {
       return NextResponse.json(
         { error: "Invalid state. Must be APPROVED or REJECTED" },
@@ -141,23 +139,18 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!result.success) {
+    if (!result.success && result.success !== undefined) {
       throw new Error(result.message || "Failed to update approval");
     }
 
-    // Get the updated approval data from the result
-    const approvalData = result.result || {};
-
-    // Convert to web format and return
-    // Create a simple approval object for the response
+    // Create response
     const webApproval = {
       id: id,
       state: state as 'APPROVED' | 'REJECTED',
       reviewedAt: new Date().toISOString(),
       reviewedBy: reviewedBy || "web-user",
       reviewNotes: reviewNotes || (state === "APPROVED" ? "Approved via web interface" : "Rejected via web interface"),
-      // Add other fields as needed - we'll return what we have
-      ...approvalData
+      ...result.result
     };
 
     return NextResponse.json(webApproval);

@@ -12,7 +12,6 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@ai-idp/infrastructure-agent": "file:../agents/infrastructure",
     "@ai-idp/mcp-client": "file:../shared/mcp-client",
     "@ai-idp/qdrant-client": "file:../shared/qdrant-client",
     "@ai-idp/types": "file:../shared/types",
@@ -23,6 +22,7 @@
     "fastify": "^5.5.0",
     "openai": "^5.15.0",
     "pino": "^9.9.0",
+    "pino-pretty": "^13.1.1",
     "uuid": "^11.1.0",
     "zod": "^4.1.3"
   },

@@ -1,14 +1,14 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { OpenAI } from 'openai';
+import { pipeline, Pipeline } from '@xenova/transformers';
 import { z } from 'zod';
 import { Logger } from 'pino';
-import type { 
-  ContextVector, 
-  VectorSearchResult, 
+import type {
+  ContextVector,
+  VectorSearchResult,
   ContextRetrievalQuery,
   QdrantConfig,
   ConversationContext,
-  AgentResponse 
+  AgentResponse
 } from '@ai-idp/types';
 
 /**
@@ -129,65 +129,63 @@ const ContextPayloadSchema = z.object({
  */
 export class QdrantContextClient {
   private qdrant: QdrantClient;
-  private openai: OpenAI;
+  private embedder: any = null; // Use any type for Xenova pipeline to avoid TypeScript issues
   private config: z.infer<typeof QdrantConfigSchema>;
   private logger: Logger;
 
   /**
-   * Create a new Qdrant context client with OpenAI embeddings
+   * Create a new Qdrant context client with local embeddings
    * 
-   * Initializes connection to Qdrant vector database and OpenAI API for
-   * generating embeddings. The client handles all context storage and retrieval
-   * operations for the AI-IDP multi-agent system.
+   * Initializes connection to Qdrant vector database and sets up local embedding
+   * generation using @xenova/transformers. The client handles all context storage 
+   * and retrieval operations for the AI-IDP multi-agent system.
    * 
    * @param config - Qdrant connection and collection configuration
-   * @param openaiApiKey - OpenAI API key for embedding generation
    * @param logger - Pino logger instance for structured logging
    * 
    * @since 1.0.0
+   * @version 2.0.0 - Replaced OpenAI with local embeddings using @xenova/transformers
    */
-  constructor(config: QdrantConfig, openaiApiKey: string, logger: Logger) {
+  constructor(config: QdrantConfig, logger: Logger) {
     this.config = QdrantConfigSchema.parse(config);
     this.logger = logger;
-    
+
     this.qdrant = new QdrantClient({
       url: this.config.url,
       apiKey: this.config.apiKey,
     });
 
-    // Only initialize OpenAI if we have a valid API key
-    if (openaiApiKey && openaiApiKey !== 'your_openai_fallback_key' && openaiApiKey.startsWith('sk-')) {
-      this.openai = new OpenAI({
-        apiKey: openaiApiKey,
-      });
-    } else {
-      this.logger.warn({}, 'OpenAI API key not provided or invalid - embeddings will not be available');
-      this.openai = null as any; // Will be handled gracefully in methods
-    }
+    this.logger.info({}, 'QdrantContextClient initialized with local embeddings');
   }
 
   /**
-   * Initialize the Qdrant collection for context storage
+   * Initialize the Qdrant collection and local embedding pipeline
    * 
-   * Sets up the vector collection with proper configuration for semantic search.
-   * Creates the collection if it doesn't exist, or verifies existing collection.
+   * Sets up the vector collection with proper configuration for semantic search using
+   * local embeddings. Loads the embedding model and creates the collection if it doesn't exist.
    * Should be called once during application startup.
    * 
    * @returns Promise resolving when initialization is complete
-   * @throws Error if collection creation or verification fails
+   * @throws Error if collection creation, model loading, or verification fails
    * 
    * @example
    * ```typescript
    * await qdrantClient.initialize();
-   * console.log('Qdrant collection ready for context storage');
+   * console.log('Qdrant collection and local embeddings ready for context storage');
    * ```
    * 
    * @since 1.0.0
+   * @version 2.0.0 - Added local embedding model initialization
    */
   async initialize(): Promise<void> {
     try {
-      this.logger.info(`Initializing Qdrant collection: ${this.config.collectionName}`);
-      
+      this.logger.info(`Initializing Qdrant collection and local embeddings: ${this.config.collectionName}`);
+
+      // Initialize local embedding pipeline
+      this.logger.info({}, 'Loading local embedding model (Xenova/all-MiniLM-L6-v2)...');
+      this.embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      this.logger.info({}, 'Local embedding model loaded successfully');
+
       // Check if collection exists
       const collections = await this.qdrant.getCollections();
       const collectionExists = collections.collections.some(
@@ -195,10 +193,10 @@ export class QdrantContextClient {
       );
 
       if (!collectionExists) {
-        // Create collection with vector configuration
+        // Create collection with vector configuration for MiniLM-L6-v2 (384 dimensions)
         await this.qdrant.createCollection(this.config.collectionName, {
           vectors: {
-            size: this.config.vectorSize,
+            size: 384, // MiniLM-L6-v2 produces 384-dimensional vectors
             distance: 'Cosine'
           },
           optimizers_config: {
@@ -206,45 +204,55 @@ export class QdrantContextClient {
           },
           replication_factor: 1
         });
-        this.logger.info(`Created Qdrant collection: ${this.config.collectionName}`);
+        this.logger.info(`Created Qdrant collection: ${this.config.collectionName} (384 dimensions)`);
       } else {
         this.logger.info(`Qdrant collection already exists: ${this.config.collectionName}`);
       }
     } catch (error) {
-      this.logger.error({ error }, 'Failed to initialize Qdrant collection');
+      this.logger.error(error, 'Failed to initialize Qdrant collection or embedding model');
       throw error;
     }
   }
 
   /**
-   * Generate embedding for text using OpenAI's text-embedding-ada-002 model
+   * Generate embedding for text using local Xenova/all-MiniLM-L6-v2 model
    * 
    * Creates semantic vector representations of text content for storage and
-   * similarity search in Qdrant. Uses OpenAI's ada-002 model which produces
-   * 1536-dimensional vectors optimized for semantic similarity.
+   * similarity search in Qdrant. Uses local transformers model which produces
+   * 384-dimensional vectors optimized for semantic similarity and privacy.
    * 
    * @param text - Text content to convert to embedding vector
-   * @returns Promise resolving to 1536-dimensional embedding vector
-   * @throws Error if OpenAI API call fails or text is too long
+   * @returns Promise resolving to 384-dimensional embedding vector
+   * @throws Error if model not loaded or embedding generation fails
    * 
    * @private
    * @since 1.0.0
+   * @version 2.0.0 - Replaced OpenAI with local Xenova/all-MiniLM-L6-v2
    */
   private async generateEmbedding(text: string): Promise<number[]> {
-    if (!this.openai) {
-      this.logger.warn({}, 'OpenAI not available - using mock embedding for development');
-      // Return a mock embedding of the correct size for development
-      return new Array(1536).fill(0).map(() => Math.random() - 0.5);
+    if (!this.embedder) {
+      throw new Error('Local embedding model not loaded. Call initialize() first.');
     }
 
     try {
-      const response = await this.openai.embeddings.create({
-        model: 'text-embedding-ada-002',
-        input: text,
+      this.logger.debug({ textLength: text.length }, 'Generating local embedding');
+
+      // Generate embedding using local model
+      const output = await this.embedder(text, {
+        pooling: 'mean',
+        normalize: true
       });
-      return response.data[0].embedding;
+
+      // Convert tensor to array (handle different output formats)
+      const embedding: number[] = Array.isArray(output.data)
+        ? (output.data as number[])
+        : Array.from(output.data as ArrayLike<number>);
+
+      this.logger.debug({ embeddingSize: embedding.length }, 'Local embedding generated successfully');
+
+      return embedding;
     } catch (error) {
-      this.logger.error({ error, text: text.substring(0, 100) }, 'Failed to generate embedding');
+      this.logger.error(error, 'Failed to generate local embedding');
       throw error;
     }
   }
@@ -327,13 +335,13 @@ export class QdrantContextClient {
         ]
       });
 
-      this.logger.info({ 
-        id: contextVector.id, 
+      this.logger.info({
+        id: contextVector.id,
         agent: agentResponse.agentId,
-        conversationId 
+        conversationId
       }, 'Stored conversation context');
     } catch (error) {
-      this.logger.error({ error, conversationId }, 'Failed to store conversation context');
+      this.logger.error(error, 'Failed to store conversation context');
       throw error;
     }
   }
@@ -386,7 +394,7 @@ export class QdrantContextClient {
 
       this.logger.info({ id: contextVector.id, agent, decisionId }, 'Stored decision context');
     } catch (error) {
-      this.logger.error({ error, decisionId }, 'Failed to store decision context');
+      this.logger.error(error, 'Failed to store decision context');
       throw error;
     }
   }
@@ -439,7 +447,7 @@ export class QdrantContextClient {
 
       this.logger.info({ id: contextVector.id, agent, patternId }, 'Stored execution pattern');
     } catch (error) {
-      this.logger.error({ error, patternId }, 'Failed to store execution pattern');
+      this.logger.error(error, 'Failed to store execution pattern');
       throw error;
     }
   }
@@ -510,14 +518,14 @@ export class QdrantContextClient {
         payload: point.payload as ContextVector['payload']
       }));
 
-      this.logger.info({ 
+      this.logger.info({
         resultCount: results.length,
-        topScore: results[0]?.score 
+        topScore: results[0]?.score
       }, 'Retrieved context results');
 
       return results;
     } catch (error) {
-      this.logger.error({ error, query }, 'Failed to retrieve context');
+      this.logger.error(error, 'Failed to retrieve context');
       throw error;
     }
   }
@@ -595,7 +603,7 @@ export class QdrantContextClient {
         }
       };
     } catch (error) {
-      this.logger.error({ error }, 'Qdrant health check failed');
+      this.logger.error(error, 'Qdrant health check failed');
       return {
         healthy: false,
         details: { error: error.message }
@@ -640,14 +648,14 @@ export class QdrantContextClient {
         }
       });
 
-      this.logger.info({ 
-        retentionDays, 
+      this.logger.info({
+        retentionDays,
         cutoffDate: cutoffDate.toISOString()
       }, 'Cleaned up old context data');
 
       return 0; // Qdrant doesn't return count in delete operation
     } catch (error) {
-      this.logger.error({ error, retentionDays }, 'Failed to cleanup old context');
+      this.logger.error(error, 'Failed to cleanup old context');
       throw error;
     }
   }
