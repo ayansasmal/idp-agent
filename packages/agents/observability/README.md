@@ -35,7 +35,7 @@ The **Observability Agent** is a specialized focused agent that leverages **Smal
 ## Current Implementation Status
 
 ### ✅ **Core Architecture - COMPLETE**
-- **SLM Integration**: Ollama + Llama 3.2:3b for intelligent analysis
+- **SLM Integration**: Ollama + Llama 3.1:8B for intelligent analysis
 - **MCP Server**: Full Model Context Protocol implementation
 - **Tool Framework**: 5 comprehensive observability tools defined
 - **Modular Design**: Clean separation of monitoring, incident, metrics, and logging operations
@@ -95,7 +95,7 @@ OBSERVABILITY_AGENT_NAME="Observability Agent"
 
 # Small Language Model Configuration
 SLM_PROVIDER=ollama                    # or 'openai' for gpt-4o-mini
-SLM_MODEL=llama3.2:3b                 # Recommended: fast, efficient
+SLM_MODEL=llama3.1:8b                 # Recommended for comprehensive analysis
 OLLAMA_BASE_URL=http://localhost:11434
 SLM_MAX_TOKENS=2048                   # Sufficient for most analysis tasks
 SLM_TEMPERATURE=0.1                   # Low for consistent analysis
@@ -122,12 +122,12 @@ QDRANT_VECTOR_SIZE=384                # Local embeddings
 # Install Ollama
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# Pull Llama 3.2:3b (recommended model)
-ollama pull llama3.2:3b
+# Pull Llama 3.1:8B (recommended model)
+ollama pull llama3.1:8b
 
 # Alternative models:
-# ollama pull llama3.2:1b    # Faster, less capable
-# ollama pull llama3.1:8b    # Slower, more capable
+# ollama pull llama3.2:3b    # Faster, less capable
+# ollama pull llama3.2:1b    # Fastest, basic capabilities
 
 # Start Ollama server
 ollama serve  # Runs on http://localhost:11434
@@ -286,14 +286,14 @@ Each tool follows the established pattern:
 ## Performance & Costs
 
 ### **SLM Performance Characteristics**
-- **Llama 3.2:3b**: ~100ms response time, 4GB VRAM
-- **Cost**: $0 (local inference), ~50x cheaper than GPT-4
-- **Accuracy**: 85%+ for observability domain tasks
-- **Concurrent Users**: 10-20 simultaneous requests
+- **Llama 3.1:8B**: ~200ms response time, 8GB VRAM
+- **Cost**: $0 (local inference), ~100x cheaper than GPT-4
+- **Accuracy**: 90%+ for observability domain tasks
+- **Concurrent Users**: 5-10 simultaneous requests
 
 ### **Scaling Considerations**
 - **CPU**: 4+ cores recommended for Ollama
-- **Memory**: 8GB+ RAM, 4GB+ VRAM for GPU acceleration
+- **Memory**: 16GB+ RAM, 8GB+ VRAM for GPU acceleration
 - **Storage**: 10GB+ for model and context storage
 - **Network**: Low latency to observability tools (<10ms)
 

@@ -5,7 +5,7 @@ import { IncidentManagement } from './incident/IncidentManagement';
 import { MetricsAnalysis } from './metrics/MetricsAnalysis';
 import { LoggingOperations } from './logging/LoggingOperations';
 import { pino, type Logger } from 'pino';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config({ path: require('path').resolve(__dirname, '../../../../.env') });
@@ -45,7 +45,7 @@ export function createObservabilityAgent(
     // SLM Configuration - using Ollama with Llama by default
     slm: {
       provider: (process.env.SLM_PROVIDER as 'ollama' | 'openai') || 'ollama',
-      model: process.env.SLM_MODEL || 'llama3.2:3b',
+      model: process.env.SLM_MODEL || 'llama3.1:8b',
       baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
       apiKey: process.env.OPENAI_API_KEY, // For OpenAI SLM if needed
       maxTokens: parseInt(process.env.SLM_MAX_TOKENS || '2048', 10),
