@@ -144,10 +144,41 @@ export class KubernetesOperations {
       }
 
       // Wait for deployment to be ready (with timeout)
-      await this.waitForDeploymentReady(resourceName, namespace, 300000); // 5 minutes timeout
+      let deploymentReady = false;
+      let timeoutOccurred = false;
+      
+      try {
+        await this.waitForDeploymentReady(resourceName, namespace, 300000); // 5 minutes timeout
+        deploymentReady = true;
+      } catch (timeoutError) {
+        if (timeoutError.message.includes('did not become ready within')) {
+          timeoutOccurred = true;
+          this.logger.warn({
+            resourceName,
+            namespace,
+            timeout: '300000ms'
+          }, 'Deployment timeout - checking current status');
+        } else {
+          throw timeoutError; // Re-throw non-timeout errors
+        }
+      }
 
-      // Get final status
+      // Get final status regardless of timeout
       const status = await this.getDeploymentStatus(resourceName, namespace);
+
+      if (timeoutOccurred) {
+        return {
+          success: false,
+          message: `Deployment ${resourceName} timed out after 5 minutes but may still be starting`,
+          detailedResponse: this.formatTimeoutResponse(status, resourceName, namespace, containerImage),
+          data: {
+            ...status,
+            timeout: true,
+            timeoutDuration: 300000,
+            requiresHealthCheck: true
+          }
+        };
+      }
 
       return {
         success: true,
@@ -661,6 +692,39 @@ ${pods.map((pod: any) =>
 - Check pod status: \`kubectl get pods -l app=${name} -n ${namespace}\`
 - View logs: \`kubectl logs -l app=${name} -n ${namespace}\`
 - Port forward: \`kubectl port-forward -n ${namespace} service/${name} 8080:80\``;
+  }
+
+  private formatTimeoutResponse(status: any, name: string, namespace: string, image: string): string {
+    const deployment = status.deployment;
+    const pods = status.pods;
+
+    return `## ⏱️ Deployment Timeout - Still Processing
+
+**Application**: ${name}
+**Namespace**: ${namespace}
+**Container Image**: ${image}
+**Status**: Deployment initiated but not fully ready within 5 minutes
+
+### 📊 Current Status
+- **Desired Replicas**: ${deployment.replicas.desired}
+- **Current Replicas**: ${deployment.replicas.current}
+- **Ready Replicas**: ${deployment.replicas.ready}
+- **Available Replicas**: ${deployment.replicas.available}
+
+### 🔄 Pod Details
+${pods.map((pod: any) =>
+      `- **${pod.name}**: ${pod.phase} (${pod.ready ? 'Ready' : 'Not Ready'}) - ${pod.age} old`
+    ).join('\n')}
+
+### ⚠️ Next Steps
+The deployment is still in progress. Please:
+1. Check deployment status: \`kubectl get deployment ${name} -n ${namespace}\`
+2. Monitor pod readiness: \`kubectl get pods -l app=${name} -n ${namespace}\`
+3. Check pod logs for issues: \`kubectl logs -l app=${name} -n ${namespace}\`
+4. Wait a few more minutes and check again
+
+### 🔍 Health Check
+A health check analysis will be performed automatically to identify any issues.`;
   }
 
   private formatScalingResponse(currentReplicas: number, targetReplicas: number, name: string, namespace: string): string {

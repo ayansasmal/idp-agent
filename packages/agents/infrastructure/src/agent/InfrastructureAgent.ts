@@ -327,24 +327,36 @@ export class InfrastructureAgent {
         environment: params.environment || 'development'
       });
 
+      // Handle timeout case specially
+      const isTimeout = result.data?.timeout === true;
+      const executionTime = Date.now() - startTime;
+      
       // Store context if Qdrant is available
       if (this.qdrantClient) {
-        await this.storeOperationContext(
-          operationId,
-          'deployApplication',
-          params,
-          result,
-          true
-        );
+        try {
+          await this.storeOperationContext(
+            operationId,
+            'deployApplication',
+            params,
+            result,
+            result.success || isTimeout // Don't treat timeout as failure for context
+          );
+        } catch (contextError) {
+          this.logger.warn({ error: contextError.message }, 'Failed to store operation context - continuing anyway');
+        }
       }
 
-      const executionTime = Date.now() - startTime;
+      // Schedule health check analysis for timeout cases
+      if (isTimeout && result.data?.requiresHealthCheck) {
+        this.scheduleHealthCheckAnalysis(operationId, params.resourceName, params.namespace || 'default');
+      }
 
       this.logger.info({
         operationId,
         success: result.success,
+        timeout: isTimeout,
         executionTime
-      }, 'Application deployment completed');
+      }, isTimeout ? 'Application deployment timed out - requires monitoring' : 'Application deployment completed');
 
       return {
         success: result.success,
@@ -355,7 +367,9 @@ export class InfrastructureAgent {
           operationId,
           executionTime,
           agent: 'infrastructure',
-          action: 'deployApplication'
+          action: 'deployApplication',
+          timeout: isTimeout,
+          requiresMonitoring: isTimeout
         }
       };
 
@@ -656,6 +670,66 @@ export class InfrastructureAgent {
         details: { error: error.message }
       };
     }
+  }
+
+  /**
+   * Schedule health check analysis for deployments that timed out
+   */
+  private scheduleHealthCheckAnalysis(operationId: string, resourceName: string, namespace: string): void {
+    this.logger.info({ operationId, resourceName, namespace }, 'Scheduling health check analysis for timed out deployment');
+    
+    // Schedule analysis after a delay to allow deployment to potentially complete
+    setTimeout(async () => {
+      try {
+        const status = await this.k8sOperations.getResourceStatus({
+          resourceName,
+          namespace,
+          resourceType: 'deployment'
+        });
+
+        if (status.success) {
+          const deployment = status.data.deployment;
+          const isHealthy = deployment.replicas.ready === deployment.replicas.desired && deployment.replicas.ready > 0;
+
+          if (isHealthy) {
+            this.logger.info({ operationId, resourceName, namespace }, 'Delayed health check: Deployment is now healthy');
+            // Could notify UI of successful completion here
+          } else {
+            this.logger.warn({ 
+              operationId, 
+              resourceName, 
+              namespace,
+              replicas: deployment.replicas
+            }, 'Delayed health check: Deployment still not ready - investigating');
+            
+            // Get logs to analyze the issue
+            const logs = await this.k8sOperations.getResourceLogs({
+              resourceName,
+              namespace,
+              lines: 50,
+              follow: false
+            });
+
+            if (logs.success) {
+              this.logger.info({ 
+                operationId, 
+                resourceName, 
+                namespace,
+                podCount: logs.data.logs.length
+              }, 'Retrieved pod logs for analysis');
+              // Could send logs to observability agent for AI analysis
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error({ 
+          operationId, 
+          resourceName, 
+          namespace,
+          error: error.message 
+        }, 'Failed to perform delayed health check analysis');
+      }
+    }, 120000); // Wait 2 minutes before checking
   }
 
   /**

@@ -5,8 +5,8 @@ import { CloudOperations } from './cloud/CloudOperations';
 import { pino, type Logger } from 'pino';
 import dotenv from 'dotenv';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from root directory
+dotenv.config({ path: require('path').resolve(__dirname, '../../../.env') });
 
 // Export main components
 export {

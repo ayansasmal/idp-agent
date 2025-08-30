@@ -24,8 +24,8 @@ const QdrantConfigSchema = z.object({
   apiKey: z.string().optional(),
   /** Vector collection name for context storage */
   collectionName: z.string().default('agent_context'),
-  /** Vector dimension size (OpenAI ada-002: 1536) */
-  vectorSize: z.number().default(1536),
+  /** Vector dimension size (Xenova/all-MiniLM-L6-v2: 384) */
+  vectorSize: z.number().default(384),
   /** Request timeout in milliseconds */
   timeout: z.number().default(30000)
 });
@@ -258,6 +258,71 @@ export class QdrantContextClient {
   }
 
   /**
+   * Generate a valid Qdrant point ID from a string
+   * Qdrant requires point IDs to be either unsigned integers or UUIDs
+   * This method converts string identifiers to valid UUIDs using a deterministic hash
+   */
+  private generateValidPointId(input: string): string {
+    // Import crypto at runtime to avoid issues
+    const crypto = require('crypto');
+    
+    // Generate a deterministic UUID v5 based on the input string
+    // Using a fixed namespace UUID to ensure consistency
+    const namespace = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'; // Standard test UUID
+    
+    try {
+      // Create MD5 hash of namespace + input for UUID v5 generation
+      const hash = crypto.createHash('md5');
+      const namespaceBytes = namespace.replace(/-/g, '');
+      hash.update(Buffer.from(namespaceBytes, 'hex'));
+      hash.update(input, 'utf8');
+      
+      const hashBytes = hash.digest();
+      
+      // Set version (4 bits) and variant (2 bits) for UUID v5
+      hashBytes[6] = (hashBytes[6] & 0x0f) | 0x50; // Version 5
+      hashBytes[8] = (hashBytes[8] & 0x3f) | 0x80; // Variant bits
+      
+      // Format as UUID string
+      const hex = hashBytes.toString('hex');
+      const uuid = [
+        hex.substr(0, 8),
+        hex.substr(8, 4),
+        hex.substr(12, 4),
+        hex.substr(16, 4),
+        hex.substr(20, 12)
+      ].join('-');
+      
+      return uuid;
+    } catch (error) {
+      this.logger.warn({ input, error }, 'Failed to generate deterministic UUID, using random UUID');
+      // Fallback to crypto.randomUUID if available, otherwise generate manually
+      return crypto.randomUUID ? crypto.randomUUID() : this.generateFallbackUUID();
+    }
+  }
+
+  /**
+   * Fallback UUID generation for environments without crypto.randomUUID
+   */
+  private generateFallbackUUID(): string {
+    const crypto = require('crypto');
+    const randomBytes = crypto.randomBytes(16);
+    
+    // Set version (4) and variant bits
+    randomBytes[6] = (randomBytes[6] & 0x0f) | 0x40;
+    randomBytes[8] = (randomBytes[8] & 0x3f) | 0x80;
+    
+    const hex = randomBytes.toString('hex');
+    return [
+      hex.substr(0, 8),
+      hex.substr(8, 4),
+      hex.substr(12, 4),
+      hex.substr(16, 4),
+      hex.substr(20, 12)
+    ].join('-');
+  }
+
+  /**
    * Store conversation context in Qdrant for cross-agent learning and memory
    * 
    * Stores conversation interactions as semantic vectors enabling future retrieval
@@ -305,7 +370,7 @@ export class QdrantContextClient {
       const embedding = await this.generateEmbedding(contextContent);
 
       const contextVector: ContextVector = {
-        id: `conv_${conversationId}_${Date.now()}`,
+        id: this.generateValidPointId(`conv_${conversationId}_${Date.now()}`),
         vector: embedding,
         payload: {
           type: 'conversation',
@@ -367,7 +432,7 @@ export class QdrantContextClient {
       const embedding = await this.generateEmbedding(decisionContent);
 
       const contextVector: ContextVector = {
-        id: `decision_${decisionId}`,
+        id: this.generateValidPointId(`decision_${decisionId}`),
         vector: embedding,
         payload: {
           type: 'decision',
@@ -420,7 +485,7 @@ export class QdrantContextClient {
       const embedding = await this.generateEmbedding(patternContent);
 
       const contextVector: ContextVector = {
-        id: `pattern_${patternId}`,
+        id: this.generateValidPointId(`pattern_${patternId}`),
         vector: embedding,
         payload: {
           type: 'pattern',
