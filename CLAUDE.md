@@ -83,3 +83,25 @@ npm run dev:web       # Web app (port 3002)
   - Added UUID generation for valid Qdrant point IDs
   - Deterministic UUID v5 generation from string identifiers
   - Prevents crashes when storing execution patterns and contexts
+
+## 🚧 Current Development: Distributed Action Tracking System
+
+**Status**: Phase 1 Complete ✅ → Phase 2 In Progress 🟡
+**Documentation**: See [ACTION_TRACKING_SYSTEM.md](./ACTION_TRACKING_SYSTEM.md) for comprehensive implementation plan
+
+**Goal**: Replace polling-based status updates with distributed action tracking using DynamoDB, background workers, and real-time WebSocket updates.
+
+**Architecture**: 
+- **Action Manager**: Central orchestration with unique action IDs
+- **DynamoDB Storage**: Persistent action state with TTL cleanup ✅
+- **Worker Framework**: Background execution with validation polling
+- **WebSocket Updates**: Real-time UI status updates
+- **Follow-up Intelligence**: Smart user prompts ("continue waiting" vs "investigate delay")
+
+**Progress**:
+- ✅ **DynamoDB Schema**: Action tracking table created with GSI indexes
+- ✅ **Action Registry**: All agent actions defined with completion criteria  
+- ✅ **Core Types**: Comprehensive TypeScript interfaces
+- 🟡 **Action Manager**: Service implementation in progress
+- ⏳ **Worker Framework**: Background job processing
+- ⏳ **UI Integration**: Real-time status updates

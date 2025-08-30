@@ -240,8 +240,8 @@ async function showStatus() {
 async function startAllServices() {
   console.log('🚀 Starting AI-IDP services...');
   
-  // Load environment variables
-  require('dotenv').config();
+  // Load environment variables from root .env
+  require('dotenv').config({ path: path.join(__dirname, '../.env') });
   
   const services = [
     {

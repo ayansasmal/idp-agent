@@ -1,0 +1,40 @@
+{
+  "name": "@ai-idp/action-manager",
+  "version": "1.0.0",
+  "description": "Distributed action tracking system for AI-IDP platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && tsc-alias && echo '@ai-idp/action-manager Build complete'",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.682.0",
+    "@aws-sdk/lib-dynamodb": "^3.682.0",
+    "@aws-sdk/util-dynamodb": "^3.682.0",
+    "bull": "^4.12.9",
+    "redis": "^4.7.0",
+    "uuid": "^10.0.0",
+    "pino": "^9.5.0",
+    "@ai-idp/types": "workspace:*",
+    "@ai-idp/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0",
+    "@types/bull": "^4.10.6",
+    "typescript": "^5.6.2",
+    "tsc-alias": "^1.8.10",
+    "tsx": "^4.19.1",
+    "vitest": "^2.1.4"
+  },
+  "keywords": [
+    "action-tracking",
+    "dynamodb",
+    "distributed-system",
+    "ai-idp"
+  ],
+  "author": "AI-IDP Team",
+  "license": "MIT"
+}

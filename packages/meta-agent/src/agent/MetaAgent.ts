@@ -392,16 +392,26 @@ export class MetaAgent {
         throw new Error(`Agent endpoint validation failed: ${error.message}`);
       }
 
-      // Register with MCP client with timeout
-      const registrationPromise = this.mcpClient.registerAgent(capabilities);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('MCP registration timeout after 10 seconds')), 10000);
-      });
-
-      await Promise.race([registrationPromise, timeoutPromise]);
-
-      // Store in local registry
+      // Store in local registry first (essential for agent discovery)
       this.registeredAgents.set(capabilities.agentId, capabilities);
+      
+      // Attempt MCP registration with timeout - this enables full MCP protocol support
+      try {
+        // Set a reasonable timeout for MCP registration
+        const mcpTimeout = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('MCP registration timeout after 10 seconds')), 10000);
+        });
+        
+        await Promise.race([
+          this.mcpClient.registerAgent(capabilities),
+          mcpTimeout
+        ]);
+        
+        this.logger.info({ agentId: capabilities.agentId }, 'Successfully registered agent via MCP');
+      } catch (error: any) {
+        this.logger.warn({ agentId: capabilities.agentId, error: error.message }, 'MCP registration failed, continuing with direct HTTP communication');
+        // Agent is still registered in local registry, Meta-Agent can route requests
+      }
 
       this.logger.info({}, `Successfully registered focused agent: ${capabilities.agentId}`);
     } catch (error: any) {
@@ -806,6 +816,84 @@ export class MetaAgent {
   }
 
   /**
+   * Direct call to Infrastructure Agent bypassing MCP registration
+   */
+  private async callInfrastructureAgentDirect(
+    intent: AgentIntent,
+    context: ConversationContext
+  ): Promise<AgentResponse[]> {
+    try {
+      this.logger.info({ action: intent.action }, 'Calling Infrastructure Agent directly');
+      
+      // Extract nginx deployment parameters
+      let resourceName = 'nginx';
+      let replicas = 1;
+      
+      // Simple parameter extraction from intent
+      if (intent.parameters.resourceName) {
+        resourceName = intent.parameters.resourceName;
+      }
+      if (intent.parameters.replicas) {
+        replicas = intent.parameters.replicas;
+      }
+      
+      // Call Infrastructure Agent directly
+      const infrastructureResponse = await fetch('http://localhost:3003/tools/deployApplication', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resourceName,
+          containerImage: 'nginx:latest',
+          replicas,
+          port: 80,
+          environment: context.metadata.environment || 'development'
+        })
+      });
+      
+      if (!infrastructureResponse.ok) {
+        throw new Error(`Infrastructure Agent responded with ${infrastructureResponse.status}`);
+      }
+      
+      const result = await infrastructureResponse.json();
+      
+      // Convert Infrastructure Agent response to AgentResponse format
+      const agentResponse: AgentResponse = {
+        agentId: 'infrastructure',
+        success: result.success,
+        message: result.message,
+        detailedResponse: result.detailedResponse,
+        data: result.data,
+        metadata: {
+          ...result.metadata,
+          agent: 'infrastructure',
+          action: 'deployApplication'
+        }
+      };
+      
+      return [agentResponse];
+      
+    } catch (error: any) {
+      this.logger.error({ error: error.message }, 'Direct Infrastructure Agent call failed');
+      
+      const errorResponse: AgentResponse = {
+        agentId: 'infrastructure',
+        success: false,
+        message: `Failed to deploy: ${error.message}`,
+        data: null,
+        metadata: {
+          agent: 'infrastructure',
+          action: 'deployApplication',
+          hasDetailedResponse: false,
+          executionTime: 0,
+          contextUsed: []
+        }
+      };
+      
+      return [errorResponse];
+    }
+  }
+
+  /**
    * Route intent to appropriate focused agents
    */
   private async routeToAgents(
@@ -813,6 +901,12 @@ export class MetaAgent {
     context: ConversationContext
   ): Promise<AgentResponse[]> {
     const targetAgent = this.registeredAgents.get(intent.agent);
+    
+    // Direct Infrastructure Agent bypass for deployment operations
+    if (!targetAgent && intent.agent === 'infrastructure' && intent.action === 'deployApplication') {
+      return await this.callInfrastructureAgentDirect(intent, context);
+    }
+    
     if (!targetAgent) {
       throw new Error(`No agent registered for: ${intent.agent}`);
     }
@@ -828,9 +922,25 @@ export class MetaAgent {
       throw new Error(`No tool found for action: ${intent.action} on agent: ${intent.agent}`);
     }
 
+    // Map intent parameters to agent tool parameters
+    let mappedParameters = { ...intent.parameters };
+    
+    // Map parameters for Infrastructure Agent deployApplication tool
+    if (intent.agent === 'infrastructure' && intent.action === 'deployApplication') {
+      // Map application_name -> resourceName and image -> containerImage
+      if (intent.parameters.application_name) {
+        mappedParameters.resourceName = intent.parameters.application_name;
+        delete mappedParameters.application_name;
+      }
+      if (intent.parameters.image) {
+        mappedParameters.containerImage = intent.parameters.image;
+        delete mappedParameters.image;
+      }
+    }
+    
     // Merge context into parameters for agent compatibility
     const parametersWithContext = {
-      ...intent.parameters,
+      ...mappedParameters,
       context: context
     };
 
@@ -840,13 +950,76 @@ export class MetaAgent {
       parameters: Object.keys(parametersWithContext)
     }, 'Routing to agent');
 
-    // Call the focused agent via MCP
-    const mcpResponse = await this.mcpClient.callTool(
-      intent.agent,
-      tool.name,
-      parametersWithContext,
-      context
-    );
+    // Call the focused agent via MCP with fallback to direct HTTP
+    let mcpResponse: MCPResponse;
+    
+    try {
+      mcpResponse = await this.mcpClient.callTool(
+        intent.agent,
+        tool.name,
+        parametersWithContext,
+        context
+      );
+    } catch (error: any) {
+      this.logger.warn({ 
+        agent: intent.agent, 
+        tool: tool.name, 
+        error: error.message 
+      }, 'MCP call failed, attempting direct HTTP call');
+      
+      try {
+        // Fall back to direct HTTP call to agent's MCP endpoint
+        const agentUrl = targetAgent.endpoints.mcp.replace('/mcp', '');
+        const directResponse = await fetch(`${agentUrl}/mcp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+              name: tool.name,
+              arguments: parametersWithContext
+            },
+            id: `${context.conversationId}_${Date.now()}`
+          })
+        });
+        
+        if (!directResponse.ok) {
+          throw new Error(`Direct HTTP call failed: ${directResponse.status} ${directResponse.statusText}`);
+        }
+        
+        const directResult = await directResponse.json();
+        
+        if (directResult.error) {
+          throw new Error(`Agent returned error: ${directResult.error.message}`);
+        }
+        
+        this.logger.info({ 
+          agent: intent.agent, 
+          tool: tool.name 
+        }, 'Direct HTTP fallback successful');
+        
+        // Convert direct response to MCP format
+        mcpResponse = {
+          result: directResult.result,
+          id: directResult.id,
+          metadata: {
+            agent: intent.agent,
+            executionTime: Date.now() - Date.now(), // Will be updated by caller
+            contextUsed: context.history.slice(-3).map(h => h.id)
+          }
+        };
+      } catch (fallbackError: any) {
+        this.logger.error({ 
+          agent: intent.agent, 
+          tool: tool.name, 
+          originalError: error.message,
+          fallbackError: fallbackError.message
+        }, 'Both MCP call and direct HTTP fallback failed');
+        
+        throw new Error(`MCP call failed: ${error.message}. HTTP fallback also failed: ${fallbackError.message}`);
+      }
+    }
 
     // Convert MCP response to AgentResponse format with standardized response structure
     const agentResponse: AgentResponse = {

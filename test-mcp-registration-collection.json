@@ -1,0 +1,360 @@
+{
+  "info": {
+    "name": "MCP Registration Failure Test",
+    "description": "Focused test collection to replicate and verify MCP registration between Meta Agent and Infrastructure Agent",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "meta_agent_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "infrastructure_agent_url", 
+      "value": "http://localhost:3003",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Service Health Checks",
+      "item": [
+        {
+          "name": "Meta Agent Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Meta Agent is healthy', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.healthy).to.be.true;",
+                  "    ",
+                  "    // Check registration status (this will fail until fixed)",
+                  "    const registeredAgents = response.metaAgent?.registeredAgents || 0;",
+                  "    const healthyAgents = response.mcp?.healthyAgents || 0;",
+                  "    ",
+                  "    console.log(`Registered Agents: ${registeredAgents}`);",
+                  "    console.log(`Healthy MCP Agents: ${healthyAgents}`);",
+                  "    ",
+                  "    // Store for later tests",
+                  "    pm.globals.set('meta_agent_registered_agents', registeredAgents);",
+                  "    pm.globals.set('meta_agent_healthy_agents', healthyAgents);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{meta_agent_url}}/health",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Infrastructure Agent Health",
+          "event": [
+            {
+              "listen": "test", 
+              "script": {
+                "exec": [
+                  "pm.test('Infrastructure Agent is responding', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.agent).to.equal('infrastructure');",
+                  "    pm.expect(response.details.initialized).to.be.true;",
+                  "    ",
+                  "    // Check Kubernetes connectivity",
+                  "    const k8sHealthy = response.details?.kubernetes?.healthy || false;",
+                  "    console.log(`Kubernetes Connected: ${k8sHealthy}`);",
+                  "    pm.globals.set('infrastructure_k8s_healthy', k8sHealthy);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/health",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. MCP Registration Status Check",
+      "item": [
+        {
+          "name": "Check Agent Registration Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('MCP Registration Status', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    ",
+                  "    const registeredAgents = response.metaAgent?.registeredAgents || 0;",
+                  "    const healthyAgents = response.mcp?.healthyAgents || 0;",
+                  "    const focusedAgents = response.focusedAgents?.length || 0;",
+                  "    ",
+                  "    console.log('=== MCP REGISTRATION STATUS ===');",
+                  "    console.log(`Registered Agents: ${registeredAgents}`);",
+                  "    console.log(`Healthy MCP Agents: ${healthyAgents}`);",
+                  "    console.log(`Focused Agents: ${focusedAgents}`);",
+                  "    ",
+                  "    if (registeredAgents > 0 && healthyAgents > 0) {",
+                  "        pm.test('✅ MCP Registration Working', function() {",
+                  "            pm.expect(true).to.be.true;",
+                  "        });",
+                  "    } else {",
+                  "        pm.test('🚨 MCP Registration Broken (This is the bug!)', function() {",
+                  "            pm.expect(false, `Expected agents registered but got: ${registeredAgents} registered, ${healthyAgents} healthy`).to.be.true;",
+                  "        });",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{meta_agent_url}}/health",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. MCP Handshake Tests",
+      "item": [
+        {
+          "name": "Infrastructure Agent Capabilities",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Infrastructure Agent exposes capabilities', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.agentId).to.equal('infrastructure');",
+                  "    pm.expect(response.tools).to.be.an('array');",
+                  "    pm.expect(response.tools.length).to.be.greaterThan(0);",
+                  "    ",
+                  "    console.log(`Available tools: ${response.tools.length}`);",
+                  "    response.tools.forEach(tool => {",
+                  "        console.log(`- ${tool.name}: ${tool.description}`);",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/capabilities",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["capabilities"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "MCP Protocol Test (tools/list)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('MCP tools/list request works', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    ",
+                  "    // Check MCP response format",
+                  "    pm.expect(response).to.have.property('jsonrpc');",
+                  "    pm.expect(response).to.have.property('id');",
+                  "    pm.expect(response.jsonrpc).to.equal('2.0');",
+                  "    ",
+                  "    if (response.result && response.result.tools) {",
+                  "        console.log(`MCP tools available: ${response.result.tools.length}`);",
+                  "        pm.expect(response.result.tools.length).to.be.greaterThan(0);",
+                  "    } else {",
+                  "        console.log('MCP response format issue:', JSON.stringify(response, null, 2));",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/list\",\n  \"id\": \"test-registration-001\"\n}"
+            },
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/mcp",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["mcp"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Registration Failure Replication",
+      "item": [
+        {
+          "name": "Meta Agent Chat Request (Should Fail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Meta Agent request processing', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    ",
+                  "    console.log('=== META AGENT RESPONSE ===');",
+                  "    console.log(`Success: ${response.success}`);",
+                  "    console.log(`Message: ${response.message}`);",
+                  "    ",
+                  "    if (response.success === false && response.message.includes('No agent registered for')) {",
+                  "        pm.test('🚨 CONFIRMED: MCP Registration Failure', function() {",
+                  "            console.log('This is the exact bug we need to fix!');",
+                  "            console.log('Meta Agent cannot find Infrastructure Agent in registry');",
+                  "            pm.expect(true).to.be.true; // Expected failure",
+                  "        });",
+                  "    } else if (response.success === true) {",
+                  "        pm.test('🎉 SUCCESS: MCP Registration Fixed!', function() {",
+                  "            console.log('The registration bug has been fixed!');",
+                  "            console.log('Meta Agent successfully routed to Infrastructure Agent');",
+                  "            pm.expect(true).to.be.true;",
+                  "        });",
+                  "    } else {",
+                  "        pm.test('❓ Unexpected Response', function() {",
+                  "            console.log('Got unexpected response:', JSON.stringify(response, null, 2));",
+                  "            pm.expect(false, 'Unexpected response format').to.be.true;",
+                  "        });",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userInput\": \"deploy test-nginx with nginx:latest image\",\n  \"context\": {\n    \"conversationId\": \"test-mcp-registration-failure\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {\n      \"source\": \"postman-mcp-test\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{meta_agent_url}}/chat",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["chat"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Control Test (Direct Infrastructure)",
+      "item": [
+        {
+          "name": "Direct Infrastructure Call (Should Work)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Direct Infrastructure Agent call works', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    ",
+                  "    console.log('=== DIRECT INFRASTRUCTURE RESPONSE ===');",
+                  "    console.log(`Success: ${response.success}`);",
+                  "    console.log(`Message: ${response.message || 'No message'}`);",
+                  "    ",
+                  "    if (response.success === true) {",
+                  "        pm.test('✅ Control Test Passed', function() {",
+                  "            console.log('Infrastructure Agent works perfectly when called directly');",
+                  "            console.log('The issue is definitely in MCP registration, not Infrastructure Agent');",
+                  "            pm.expect(true).to.be.true;",
+                  "        });",
+                  "    } else {",
+                  "        pm.test('❌ Control Test Failed', function() {",
+                  "            console.log('Even direct calls are failing - there might be other issues');",
+                  "            pm.expect(false, `Direct Infrastructure call failed: ${response.message}`).to.be.true;",
+                  "        });",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resourceName\": \"test-mcp-postman\",\n  \"containerImage\": \"nginx:latest\",\n  \"namespace\": \"default\",\n  \"replicas\": 1,\n  \"context\": {\n    \"conversationId\": \"test-mcp-direct\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {\n      \"source\": \"postman-direct-test\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/tools/deployApplication",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["tools", "deployApplication"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
