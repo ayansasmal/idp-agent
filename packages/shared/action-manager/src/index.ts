@@ -36,6 +36,35 @@ export {
 // Action Registry
 export { ActionRegistry } from './registry/ActionRegistry';
 
+// Worker Framework
+export { 
+  ActionWorker, 
+  WorkerFactory,
+  type WorkerContext,
+  type ToolExecutionResult,
+  type ValidationResult,
+  type WorkerStats
+} from './workers/ActionWorker';
+export { InfrastructureWorker, type K8sResourceStatus } from './workers/InfrastructureWorker';
+export { 
+  ObservabilityWorker,
+  type LogAnalysisResult,
+  type MetricsAnalysisResult,
+  type HealthCheckResult
+} from './workers/ObservabilityWorker';
+export { 
+  MetaWorker,
+  type OrchestrationStep,
+  type OrchestrationResult,
+  type ApprovalRequest
+} from './workers/MetaWorker';
+export { 
+  WorkerManager,
+  type WorkerPoolConfig,
+  type ActiveWorker,
+  type WorkerExecutionResult
+} from './workers/WorkerManager';
+
 // Storage classes (legacy)
 export * from './storage/TableSetup';
 

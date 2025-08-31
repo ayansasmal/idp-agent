@@ -9,6 +9,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { ActionManager } from './ActionManager';
 import { ActionQueue, ActionQueueJob, InMemoryActionQueue } from '../queue/ActionQueue';
 import { DynamoDBClientFactory } from '../clients/DynamoDBClientFactory';
+import { WorkerManager, WorkerPoolConfig } from '../workers/WorkerManager';
 import { 
   ActionRecord, 
   ActionStatus, 
@@ -26,6 +27,8 @@ export interface ActionManagerServiceConfig {
   tableName?: string;
   queue?: ActionQueue;
   ttlDays?: number;
+  workerConfig?: Partial<WorkerPoolConfig>;
+  useWorkerManager?: boolean;
 }
 
 /**
@@ -46,8 +49,10 @@ export interface ActionEventCallbacks {
  */
 export class ActionManagerService {
   private actionManager: ActionManager;
-  private queue: ActionQueue;
+  private queue?: ActionQueue;
+  private workerManager?: WorkerManager;
   private callbacks: ActionEventCallbacks = {};
+  private useWorkerManager: boolean;
 
   constructor(config: ActionManagerServiceConfig = {}) {
     // Initialize DynamoDB client
@@ -60,11 +65,16 @@ export class ActionManagerService {
       ttlDays: config.ttlDays
     });
 
-    // Initialize Queue
-    this.queue = config.queue || new InMemoryActionQueue();
+    this.useWorkerManager = config.useWorkerManager ?? true;
 
-    // Set up queue event handlers
-    this.setupQueueHandlers();
+    if (this.useWorkerManager) {
+      // Initialize Worker Manager for production-grade execution
+      this.workerManager = new WorkerManager(this, config.workerConfig);
+    } else {
+      // Initialize Queue for simple processing
+      this.queue = config.queue || new InMemoryActionQueue();
+      this.setupQueueHandlers();
+    }
   }
 
   /**
@@ -76,8 +86,8 @@ export class ActionManagerService {
   }
 
   /**
-   * Initialize the service (start queue processing)
-   * @param queueConcurrency - Number of concurrent queue workers
+   * Initialize the service (start processing)
+   * @param queueConcurrency - Number of concurrent queue workers (only used with queue mode)
    */
   async initialize(queueConcurrency = 3): Promise<void> {
     console.log('Initializing Action Manager Service...');
@@ -94,8 +104,15 @@ export class ActionManagerService {
       
       console.log(`DynamoDB connected: ${connectionTest.endpoint} (${connectionTest.region})`);
 
-      // Start queue processing
-      await this.queue.start(queueConcurrency);
+      if (this.useWorkerManager && this.workerManager) {
+        // Start worker manager
+        await this.workerManager.start();
+        console.log('Worker Manager started');
+      } else if (this.queue) {
+        // Start queue processing
+        await this.queue.start(queueConcurrency);
+        console.log('Queue processing started');
+      }
       
       console.log('Action Manager Service initialized successfully');
     } catch (error) {
@@ -109,7 +126,13 @@ export class ActionManagerService {
    */
   async shutdown(): Promise<void> {
     console.log('Shutting down Action Manager Service...');
-    await this.queue.stop();
+    
+    if (this.useWorkerManager && this.workerManager) {
+      await this.workerManager.stop();
+    } else if (this.queue) {
+      await this.queue.stop();
+    }
+    
     console.log('Action Manager Service shut down');
   }
 
@@ -127,15 +150,20 @@ export class ActionManagerService {
       await this.callbacks.onActionCreated(action);
     }
 
-    // Queue for background processing
-    const queueJob: ActionQueueJob = {
-      actionId: action.actionId,
-      actionRecord: action,
-      priority: (request.priority as 'low' | 'normal' | 'high' | 'urgent') || 'normal',
-      maxRetries: 3
-    };
+    if (this.useWorkerManager && this.workerManager) {
+      // Submit to worker manager
+      await this.workerManager.submitAction(action);
+    } else if (this.queue) {
+      // Queue for background processing
+      const queueJob: ActionQueueJob = {
+        actionId: action.actionId,
+        actionRecord: action,
+        priority: (request.priority as 'low' | 'normal' | 'high' | 'urgent') || 'normal',
+        maxRetries: 3
+      };
 
-    await this.queue.enqueue(queueJob);
+      await this.queue.enqueue(queueJob);
+    }
     
     console.log(`Created and queued action: ${action.actionId} (${action.toolName})`);
     return action;
@@ -274,29 +302,71 @@ export class ActionManagerService {
       failed: number;
       byAgent: Record<AgentName, number>;
     };
-    queue: {
+    processing: {
       waiting: number;
       active: number;
       completed: number;
       failed: number;
-      delayed: number;
+      delayed?: number;
     };
   }> {
-    const [actionStats, queueStats] = await Promise.all([
-      this.actionManager.getActionStatistics(),
-      this.queue.getStats()
-    ]);
+    const actionStats = await this.actionManager.getActionStatistics();
+    
+    let processingStats;
+    if (this.useWorkerManager && this.workerManager) {
+      const workerStats = this.workerManager.getStats();
+      processingStats = {
+        waiting: workerStats.queuedActions,
+        active: workerStats.activeWorkers,
+        completed: workerStats.totalProcessed,
+        failed: 0 // Would need to track this in WorkerManager
+      };
+    } else if (this.queue) {
+      processingStats = await this.queue.getStats();
+    } else {
+      processingStats = {
+        waiting: 0,
+        active: 0,
+        completed: 0,
+        failed: 0
+      };
+    }
 
     return {
       actions: actionStats,
-      queue: queueStats
+      processing: processingStats
     };
+  }
+
+  /**
+   * Abort a specific action
+   * @param actionId - Action identifier
+   * @returns True if action was aborted, false if not found
+   */
+  async abortAction(actionId: string): Promise<boolean> {
+    if (this.useWorkerManager && this.workerManager) {
+      return await this.workerManager.abortAction(actionId);
+    }
+    
+    // For queue-based processing, we can't abort easily
+    // Just mark as cancelled
+    try {
+      await this.actionManager.updateAction(actionId, {
+        status: ActionStatus.CANCELLED
+      });
+      return true;
+    } catch (error) {
+      console.error(`Failed to abort action ${actionId}:`, error);
+      return false;
+    }
   }
 
   /**
    * Setup queue event handlers to update action records
    */
   private setupQueueHandlers(): void {
+    if (!this.queue) return;
+    
     this.queue.setEventHandlers({
       onJobStarted: async (job) => {
         await this.actionManager.updateAction(job.actionId, {

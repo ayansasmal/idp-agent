@@ -84,6 +84,7 @@ export interface ExecutionMetadata {
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   retryCount: number;
   lastRetryTime?: string;
+  lastStatusMessage?: string;
   errorHistory?: Array<{
     timestamp: string;
     error: string;
@@ -92,6 +93,8 @@ export interface ExecutionMetadata {
   workerId?: string;                    // Which worker is handling this
   estimatedDuration?: number;           // Expected completion time
   actualDuration?: number;              // Actual completion time
+  orchestrationData?: any;              // For meta agent orchestration
+  approvalData?: any;                   // For approval workflows
 }
 
 export interface ActionResult {
