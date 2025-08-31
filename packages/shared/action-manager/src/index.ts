@@ -1,23 +1,54 @@
 /**
- * Action Manager - Distributed Action Tracking System
- * Entry point for the action tracking system
+ * Action Manager Package - Main Export
+ * 
+ * Distributed action tracking system for AI-IDP platform
  */
 
-// Export core types
+// Core Types
 export * from './types/ActionTypes';
 
-// Export storage classes
+// Services
+export { ActionManager } from './services/ActionManager';
+export { 
+  ActionManagerService, 
+  getActionManagerService, 
+  initializeActionManagerService,
+  type ActionManagerServiceConfig,
+  type ActionEventCallbacks
+} from './services/ActionManagerService';
+
+// Queue System
+export { 
+  ActionQueue, 
+  InMemoryActionQueue,
+  type ActionQueueJob,
+  type ActionQueueResult,
+  type ActionQueueEventHandlers
+} from './queue/ActionQueue';
+
+// Database Clients
+export { 
+  DynamoDBClientFactory,
+  createAndTestDynamoDBClient,
+  type DynamoDBFactoryConfig
+} from './clients/DynamoDBClientFactory';
+
+// Action Registry
+export { ActionRegistry } from './registry/ActionRegistry';
+
+// Storage classes (legacy)
 export * from './storage/TableSetup';
 
-// Export registry
-export * from './registry/ActionRegistry';
-
-// Main exports that will be implemented
-// export * from './manager/ActionManager';
-// export * from './workers/ActionWorker';
+// Convenience exports for common patterns
+export {
+  ActionStatus,
+  ActionType,
+  ActionIntent,
+  AgentName
+} from './types/ActionTypes';
 
 /**
  * Package version and info
  */
-export const ACTION_MANAGER_VERSION = '1.0.0';
+export const ACTION_MANAGER_VERSION = '2.0.0';
 export const ACTION_MANAGER_NAME = '@ai-idp/action-manager';

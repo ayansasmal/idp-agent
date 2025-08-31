@@ -1,6 +1,6 @@
 {
   "name": "@ai-idp/action-manager",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Distributed action tracking system for AI-IDP platform",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

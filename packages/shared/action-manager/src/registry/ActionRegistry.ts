@@ -10,7 +10,7 @@ import { ActionDefinition, ActionType, AgentName } from '../types/ActionTypes';
  */
 const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
   deploy: {
-    actionType: 'deploy',
+    actionType: ActionType.DEPLOY,
     tool: 'deployApplication',
     defaultTimeout: 600000, // 10 minutes
     completionCriteria: {
@@ -36,7 +36,7 @@ const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   scale: {
-    actionType: 'scale',
+    actionType: ActionType.SCALE,
     tool: 'scaleResource',
     defaultTimeout: 300000, // 5 minutes
     completionCriteria: {
@@ -63,7 +63,7 @@ const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'status-check': {
-    actionType: 'status-check',
+    actionType: ActionType.STATUS_CHECK,
     tool: 'getResourceStatus',
     defaultTimeout: 30000, // 30 seconds
     completionCriteria: {
@@ -83,7 +83,7 @@ const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'get-logs': {
-    actionType: 'get-logs',
+    actionType: ActionType.GET_LOGS,
     tool: 'getResourceLogs', 
     defaultTimeout: 60000, // 1 minute
     completionCriteria: {
@@ -103,7 +103,7 @@ const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'provision-db': {
-    actionType: 'provision-db',
+    actionType: ActionType.PROVISION_DB,
     tool: 'provisionDatabase',
     defaultTimeout: 900000, // 15 minutes
     completionCriteria: {
@@ -135,7 +135,7 @@ const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
  */
 const OBSERVABILITY_ACTIONS: Record<string, ActionDefinition> = {
   'analyze-logs': {
-    actionType: 'analyze-logs',
+    actionType: ActionType.ANALYZE_LOGS,
     tool: 'analyzeLogs',
     defaultTimeout: 300000, // 5 minutes
     completionCriteria: {
@@ -157,7 +157,7 @@ const OBSERVABILITY_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'monitor-metrics': {
-    actionType: 'monitor-metrics',
+    actionType: ActionType.MONITOR_METRICS,
     tool: 'monitorMetrics',
     defaultTimeout: 120000, // 2 minutes
     completionCriteria: {
@@ -179,7 +179,7 @@ const OBSERVABILITY_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'investigate-incident': {
-    actionType: 'investigate-incident',
+    actionType: ActionType.INVESTIGATE_INCIDENT,
     tool: 'investigateIncident',
     defaultTimeout: 600000, // 10 minutes
     completionCriteria: {
@@ -201,7 +201,7 @@ const OBSERVABILITY_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'health-check': {
-    actionType: 'health-check',
+    actionType: ActionType.HEALTH_CHECK,
     tool: 'performHealthCheck',
     defaultTimeout: 180000, // 3 minutes
     completionCriteria: {
@@ -228,7 +228,7 @@ const OBSERVABILITY_ACTIONS: Record<string, ActionDefinition> = {
  */
 const META_ACTIONS: Record<string, ActionDefinition> = {
   orchestrate: {
-    actionType: 'orchestrate',
+    actionType: ActionType.ORCHESTRATE,
     tool: 'processRequest',
     defaultTimeout: 1200000, // 20 minutes (for complex workflows)
     completionCriteria: {
@@ -250,7 +250,7 @@ const META_ACTIONS: Record<string, ActionDefinition> = {
   },
 
   'request-approval': {
-    actionType: 'request-approval',
+    actionType: ActionType.REQUEST_APPROVAL,
     tool: 'requestApproval',
     defaultTimeout: 3600000, // 1 hour
     completionCriteria: {
@@ -284,16 +284,23 @@ export const ACTION_REGISTRY = {
 /**
  * Action Registry Helper Functions
  */
-export class ActionRegistryHelper {
+export class ActionRegistry {
   
   /**
-   * Get action definition by agent and action type
+   * Get action definition by agent and tool name
    */
-  static getActionDefinition(agentName: AgentName, actionType: ActionType): ActionDefinition | null {
+  static getActionDefinition(agentName: AgentName, toolName: string): ActionDefinition | null {
     const agentActions = ACTION_REGISTRY[agentName];
     if (!agentActions) return null;
     
-    return agentActions[actionType] || null;
+    // Find by tool name instead of action type
+    for (const [actionType, definition] of Object.entries(agentActions)) {
+      if (definition.tool === toolName) {
+        return definition;
+      }
+    }
+    
+    return null;
   }
 
   /**

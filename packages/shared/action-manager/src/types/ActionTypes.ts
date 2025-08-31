@@ -2,27 +2,48 @@
  * Core types for the distributed action tracking system
  */
 
-export type ActionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'timeout' | 'cancelled';
+export enum ActionStatus {
+  PENDING = 'pending',
+  RUNNING = 'running', 
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+  TIMEOUT = 'timeout',
+  CANCELLED = 'cancelled'
+}
 
-export type ActionType = 
+export enum ActionType {
   // Infrastructure Actions
-  | 'deploy' 
-  | 'scale' 
-  | 'status-check' 
-  | 'get-logs' 
-  | 'provision-db'
+  DEPLOY = 'deploy',
+  SCALE = 'scale',
+  STATUS_CHECK = 'status-check',
+  GET_LOGS = 'get-logs',
+  PROVISION_DB = 'provision-db',
   // Observability Actions  
-  | 'analyze-logs' 
-  | 'monitor-metrics' 
-  | 'investigate-incident' 
-  | 'health-check'
+  ANALYZE_LOGS = 'analyze-logs',
+  MONITOR_METRICS = 'monitor-metrics',
+  INVESTIGATE_INCIDENT = 'investigate-incident',
+  HEALTH_CHECK = 'health-check',
   // Meta Actions
-  | 'orchestrate' 
-  | 'request-approval';
+  ORCHESTRATE = 'orchestrate',
+  REQUEST_APPROVAL = 'request-approval'
+}
 
-export type AgentName = 'infrastructure' | 'observability' | 'meta';
+export enum ActionIntent {
+  DEPLOY = 'deploy',
+  SCALE = 'scale', 
+  MONITOR = 'monitor',
+  INVESTIGATE = 'investigate',
+  ORCHESTRATE = 'orchestrate',
+  APPROVE = 'approve'
+}
 
-export interface ActionIntent {
+export enum AgentName {
+  INFRASTRUCTURE = 'infrastructure',
+  OBSERVABILITY = 'observability', 
+  META = 'meta'
+}
+
+export interface ActionIntentDetails {
   operation: string;                    // "deploy", "scale", "investigate"
   resource: string;                     // "nginx", "postgresql-db"  
   namespace?: string;                   // "production", "staging"
@@ -58,9 +79,12 @@ export interface RetryConfig {
 }
 
 export interface ExecutionMetadata {
+  toolParameters?: Record<string, any>;
+  environment?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
   retryCount: number;
   lastRetryTime?: string;
-  errorHistory: Array<{
+  errorHistory?: Array<{
     timestamp: string;
     error: string;
     retryable: boolean;
@@ -72,14 +96,10 @@ export interface ExecutionMetadata {
 
 export interface ActionResult {
   success: boolean;
-  message: string;
   data: any;
-  detailedResponse?: string;
-  metrics?: {
-    executionTime: number;
-    resourcesUsed: Record<string, any>;
-    errorCount: number;
-  };
+  error?: string | null;
+  executionTime: number;
+  resourcesCreated: string[];
 }
 
 /**
@@ -173,15 +193,36 @@ export interface ActionDefinition {
  * Request to create a new action
  */
 export interface CreateActionRequest {
-  actionType: ActionType;
-  agentName: AgentName;
-  toolName: string;
   userId: string;
   sessionId: string;
   conversationId: string;
+  agentName: AgentName;
+  toolName: string;
   intent: ActionIntent;
+  toolParameters?: Record<string, any>;
+  environment?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
   parentActionId?: string;
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
+}
+
+/**
+ * Request to update an existing action
+ */
+export interface UpdateActionRequest {
+  status?: ActionStatus;
+  progress?: number;
+  result?: ActionResult;
+  executionMetadata?: Partial<ExecutionMetadata>;
+  addChildActionId?: string;
+}
+
+/**
+ * Options for querying actions
+ */
+export interface ActionQueryOptions {
+  limit?: number;
+  offset?: number;
+  sortOrder?: 'asc' | 'desc';
 }
 
 /**
