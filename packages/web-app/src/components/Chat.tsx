@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
+import ActionStatusCard from "./ActionStatusCard";
 import { nanoid } from "nanoid";
-import type { ChatMessage } from "@/lib/types";
+import { useWebSocket } from "@/contexts/WebSocketContext";
+import IntelligentPrompts from "./IntelligentPrompts";
+import type { ChatMessage, ActionRecord, ActionUpdate } from "@/lib/types";
 
 export default function Chat() {
   const searchParams = useSearchParams();
@@ -15,7 +18,9 @@ export default function Chat() {
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const [activeActions, setActiveActions] = useState<Map<string, ActionRecord>>(new Map());
   const sessionIdRef = useRef<string | null>(null);
+  const { isConnected, connectionStatus, subscribeToAction } = useWebSocket();
 
   // Check for session ID in URL params
   useEffect(() => {
@@ -33,6 +38,53 @@ export default function Chat() {
       }]);
     }
   }, [searchParams]);
+
+  // Handle action updates from WebSocket
+  const handleActionUpdate = useCallback((actionId: string, update: ActionUpdate) => {
+    setActiveActions(prev => {
+      const newMap = new Map(prev);
+      const existing = newMap.get(actionId);
+      
+      if (existing) {
+        const updated = {
+          ...existing,
+          status: update.status || existing.status,
+          progress: update.progress ?? existing.progress,
+          lastUpdate: new Date().toISOString(),
+          ...(update.result && { result: update.result }),
+          ...(update.status === 'completed' && { completedTime: new Date().toISOString() })
+        };
+        newMap.set(actionId, updated);
+        
+        // Update the corresponding message
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            msg.actionId === actionId 
+              ? { ...msg, actionStatus: update.status || msg.actionStatus, progress: update.progress ?? msg.progress }
+              : msg
+          )
+        );
+      }
+      
+      return newMap;
+    });
+  }, []);
+
+  // Subscribe to action updates for all active actions
+  useEffect(() => {
+    const unsubscribeFunctions: (() => void)[] = [];
+    
+    activeActions.forEach((action, actionId) => {
+      const unsubscribe = subscribeToAction(actionId, (update) => {
+        handleActionUpdate(actionId, update);
+      });
+      unsubscribeFunctions.push(unsubscribe);
+    });
+    
+    return () => {
+      unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+    };
+  }, [activeActions, subscribeToAction, handleActionUpdate]);
 
   const loadSession = async (sessionId: string) => {
     try {
@@ -148,9 +200,45 @@ export default function Chat() {
         metadata: assistantMessage.metadata,
         detailedContent: assistantMessage.detailedContent,
         rawData: assistantMessage.rawData,
+        // Extract action tracking info from response
+        actionId: assistantMessage.rawData?.actionId || assistantMessage.metadata?.actionId,
+        actionStatus: 'pending', // Initial status for tracked actions
+        progress: 0,
+        trackingEnabled: !!assistantMessage.rawData?.actionId,
+        estimatedDuration: assistantMessage.rawData?.estimatedDuration
       };
 
       setMessages(prev => [...prev, chatMessage]);
+      
+          // If this message has an actionId, start tracking it
+      if (chatMessage.actionId) {
+        const actionRecord: ActionRecord = {
+          actionId: chatMessage.actionId,
+          status: 'pending',
+          progress: 0,
+          toolName: assistantMessage.metadata?.action || 'unknown',
+          agentName: (assistantMessage.metadata?.agent || 'infrastructure') as any,
+          startTime: new Date().toISOString(),
+          lastUpdate: new Date().toISOString(),
+          executionMetadata: {
+            retryCount: 0,
+            toolParameters: assistantMessage.rawData?.toolParameters,
+            environment: context.environment,
+            priority: 'normal',
+            estimatedDuration: assistantMessage.rawData?.estimatedDuration
+          },
+          userId: context.userId || 'web-user',
+          sessionId: sessionIdRef.current || 'default',
+          conversationId: sessionIdRef.current || 'default',
+          intent: 'deploy'
+        };
+        
+        setActiveActions(prev => {
+          const newMap = new Map(prev);
+          newMap.set(chatMessage.actionId!, actionRecord);
+          return newMap;
+        });
+      }
     } catch (err) {
       console.error("Chat error:", err);
       setError(err instanceof Error ? err : new Error("Unknown error"));
@@ -216,10 +304,19 @@ export default function Chat() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6">
+        {/* Intelligent Prompts */}
+        <IntelligentPrompts 
+          onActionSuggested={(action) => {
+            setInput(action);
+          }}
+          className="mb-6"
+        />
+        
         <MessageList 
           messages={messages} 
           onNamespaceSelect={handleNamespaceSelect}
           onParameterSubmit={submitMessage}
+          activeActions={activeActions}
         />
         {error && (
           <div className="mt-4 rounded-lg bg-red-50 border border-red-200 p-4">

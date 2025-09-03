@@ -1,17 +1,19 @@
 import { nanoid } from "nanoid";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, ActionRecord } from "@/lib/types";
 import { useState } from "react";
 import ExpandableDetails from "./ExpandableDetails";
 import JsonViewer from "./JsonViewer";
 import ParameterPrompt from "./ParameterPrompt";
+import ActionStatusCard from "./ActionStatusCard";
 
 interface MessageListProps {
   messages: ChatMessage[];
   onNamespaceSelect?: (namespace: string, originalMessage: string) => void;
   onParameterSubmit?: (completedRequest: string) => void;
+  activeActions?: Map<string, ActionRecord>;
 }
 
-export default function MessageList({ messages, onNamespaceSelect, onParameterSubmit }: MessageListProps) {
+export default function MessageList({ messages, onNamespaceSelect, onParameterSubmit, activeActions }: MessageListProps) {
   return (
     <div className="space-y-4">
       {messages.map((message) => (
@@ -129,6 +131,19 @@ export default function MessageList({ messages, onNamespaceSelect, onParameterSu
               </div>
             </div>
           </div>
+
+          {/* Action Status Card */}
+          {message.role === "assistant" && message.actionId && activeActions?.has(message.actionId) && (
+            <div className="mt-4 w-full">
+              <ActionStatusCard 
+                actionId={message.actionId}
+                initialData={activeActions.get(message.actionId)}
+                showProgress={true}
+                showDetails={false}
+                className="max-w-full"
+              />
+            </div>
+          )}
         </div>
       ))}
     </div>

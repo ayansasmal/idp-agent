@@ -18,8 +18,8 @@
     "redis": "^4.7.0",
     "uuid": "^10.0.0",
     "pino": "^9.5.0",
-    "@ai-idp/types": "workspace:*",
-    "@ai-idp/utils": "workspace:*"
+    "@ai-idp/types": "file:../types",
+    "@ai-idp/utils": "file:../utils"
   },
   "devDependencies": {
     "@types/uuid": "^10.0.0",

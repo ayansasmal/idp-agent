@@ -10,6 +10,7 @@ import type {
 import { KubernetesOperations } from '../kubernetes/KubernetesOperations';
 import { CloudOperations } from '../cloud/CloudOperations';
 import { KubernetesAI } from '../ai/KubernetesAI';
+import { ActionManager, ActionManagerConfig } from '@ai-idp/action-manager';
 
 /**
  * Configuration interface for Infrastructure Agent
@@ -66,6 +67,12 @@ export interface InfrastructureAgentConfig {
     /** Request timeout in milliseconds */
     timeout?: number;
   };
+
+  /** Optional Action Manager configuration for distributed tracking */
+  actionManager?: ActionManagerConfig & {
+    /** Enable distributed action tracking */
+    enabled: boolean;
+  };
 }
 
 /**
@@ -101,6 +108,13 @@ const InfrastructureAgentConfigSchema = z.object({
     modelName: z.string().default('hf.co/K8sAIOps/kubernetes_operator_3b_peft_gguf:latest'),
     temperature: z.number().min(0).max(1).default(0.1),
     timeout: z.number().default(30000)
+  }).optional(),
+  /** Optional Action Manager configuration for distributed tracking */
+  actionManager: z.object({
+    enabled: z.boolean().default(false),
+    dynamoDbClient: z.any().optional(), // Will be provided at runtime
+    tableName: z.string().default('ai-idp-actions'),
+    ttlDays: z.number().default(30)
   }).optional()
 });
 
@@ -183,6 +197,7 @@ export class InfrastructureAgent {
   private k8sOperations: KubernetesOperations;
   private cloudOperations: CloudOperations;
   private kubernetesAI?: KubernetesAI;
+  private actionManager?: ActionManager;
   private isInitialized = false;
 
   // Agent capabilities definition
@@ -237,6 +252,15 @@ export class InfrastructureAgent {
         modelName: this.config.kubernetesAI.modelName,
         temperature: this.config.kubernetesAI.temperature,
         timeout: this.config.kubernetesAI.timeout
+      });
+    }
+
+    // Initialize Action Manager if configured
+    if (this.config.actionManager?.enabled && this.config.actionManager.dynamoDbClient) {
+      this.actionManager = new ActionManager({
+        dynamoDbClient: this.config.actionManager.dynamoDbClient,
+        tableName: this.config.actionManager.tableName,
+        ttlDays: this.config.actionManager.ttlDays
       });
     }
 
@@ -876,6 +900,30 @@ export class InfrastructureAgent {
           },
           required: ['intent', 'resourceType', 'appName']
         }
+      },
+      {
+        name: 'getActionStatus',
+        description: 'Get status of a distributed action by ID',
+        parameters: {
+          type: 'object',
+          properties: {
+            actionId: { type: 'string', description: 'Unique action identifier' }
+          },
+          required: ['actionId']
+        }
+      },
+      {
+        name: 'listUserActions',
+        description: 'List all actions for a user with optional filtering',
+        parameters: {
+          type: 'object',
+          properties: {
+            userId: { type: 'string', description: 'User identifier' },
+            status: { type: 'string', description: 'Filter by action status (pending, running, completed, failed)' },
+            limit: { type: 'number', description: 'Maximum number of actions to return (default: 20)' }
+          },
+          required: ['userId']
+        }
       }
     ];
 
@@ -893,7 +941,9 @@ export class InfrastructureAgent {
         'container-orchestration',
         'ai-powered-operations',
         'natural-language-to-kubectl',
-        'manifest-generation'
+        'manifest-generation',
+        'distributed-action-tracking',
+        'background-processing'
       ],
       endpoints: {
         mcp: `http://localhost:3001/mcp`,
@@ -1099,6 +1149,144 @@ export class InfrastructureAgent {
         duration
       };
     }
+  }
+
+  /**
+   * Execute tool with optional distributed action tracking
+   */
+  private async executeToolWithTracking(
+    toolName: string,
+    parameters: any,
+    context: ConversationContext
+  ): Promise<any> {
+    // If Action Manager is available, use distributed tracking
+    if (this.actionManager) {
+      return await this.executeToolViaActionManager(toolName, parameters, context);
+    } 
+    
+    // Otherwise, execute directly (legacy mode)
+    return await this.executeToolDirectly(toolName, parameters, context);
+  }
+
+  /**
+   * Execute tool via Action Manager for distributed tracking
+   */
+  private async executeToolViaActionManager(
+    toolName: string,
+    parameters: any,
+    context: ConversationContext
+  ): Promise<any> {
+    try {
+      // Import action types
+      const { ActionIntent, AgentName } = await import('@ai-idp/action-manager');
+      
+      // Map tool names to action intents
+      const actionIntentMap: Record<string, string> = {
+        'deployApplication': ActionIntent.DEPLOY,
+        'scaleResource': ActionIntent.SCALE,
+        'getResourceStatus': ActionIntent.MONITOR,
+        'getResourceLogs': ActionIntent.MONITOR,
+        'provisionDatabase': ActionIntent.DEPLOY,
+        'generateKubectlCommand': ActionIntent.AI_GENERATE,
+        'generateKubernetesManifest': ActionIntent.AI_GENERATE
+      };
+
+      const actionIntent = actionIntentMap[toolName] || ActionIntent.DEPLOY;
+
+      // Create action via Action Manager
+      const createResult = await this.actionManager!.createAction(
+        context.userId,
+        context.conversationId,
+        AgentName.INFRASTRUCTURE,
+        toolName,
+        actionIntent,
+        parameters
+      );
+
+      if (!createResult.success) {
+        throw new Error(`Failed to create action: ${createResult.error}`);
+      }
+
+      // Log that we're using distributed tracking
+      this.logger.info({
+        actionId: createResult.actionId,
+        toolName,
+        parameters
+      }, 'Executing tool via distributed action tracking');
+
+      // Get the action status (will be processed by workers)
+      const statusResult = await this.actionManager!.getActionStatus(createResult.actionId!);
+      
+      return {
+        success: true,
+        actionId: createResult.actionId,
+        status: statusResult.success ? statusResult.actionRecord?.status : 'unknown',
+        message: `Action ${createResult.actionId} queued for distributed execution`,
+        data: statusResult.success ? statusResult.actionRecord : null,
+        isDistributedAction: true
+      };
+
+    } catch (error) {
+      this.logger.error(error, 'Failed to execute tool via Action Manager');
+      
+      // Fallback to direct execution
+      this.logger.warn('Falling back to direct tool execution');
+      return await this.executeToolDirectly(toolName, parameters, context);
+    }
+  }
+
+  /**
+   * Execute tool directly (legacy mode)
+   */
+  private async executeToolDirectly(
+    toolName: string,
+    parameters: any,
+    context: ConversationContext
+  ): Promise<any> {
+    switch (toolName) {
+      case 'deployApplication':
+        return await this.deployApplication({ ...parameters, context });
+      case 'scaleResource':
+        return await this.scaleResource({ ...parameters, context });
+      case 'getResourceStatus':
+        return await this.getResourceStatus({ ...parameters, context });
+      case 'getResourceLogs':
+        return await this.getResourceLogs({ ...parameters, context });
+      case 'generateKubectlCommand':
+        return await this.generateKubectlCommand({ ...parameters, context });
+      case 'generateKubernetesManifest':
+        return await this.generateKubernetesManifest({ ...parameters, context });
+      default:
+        throw new Error(`Unknown tool: ${toolName}`);
+    }
+  }
+
+  /**
+   * Get action status from Action Manager
+   */
+  async getActionStatus(actionId: string): Promise<any> {
+    if (!this.actionManager) {
+      return {
+        success: false,
+        error: 'Action Manager not configured'
+      };
+    }
+
+    return await this.actionManager.getActionStatus(actionId);
+  }
+
+  /**
+   * List user actions from Action Manager
+   */
+  async listUserActions(userId: string, options?: any): Promise<any> {
+    if (!this.actionManager) {
+      return {
+        success: false,
+        error: 'Action Manager not configured'
+      };
+    }
+
+    return await this.actionManager.getUserActions(userId, options);
   }
 
   /**
