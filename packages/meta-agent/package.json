@@ -12,6 +12,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@ai-idp/action-manager": "file:../shared/action-manager",
     "@ai-idp/mcp-client": "file:../shared/mcp-client",
     "@ai-idp/qdrant-client": "file:../shared/qdrant-client",
     "@ai-idp/types": "file:../shared/types",

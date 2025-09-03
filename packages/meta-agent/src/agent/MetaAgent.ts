@@ -12,6 +12,8 @@ import {
 import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
 import { MCPAgentClient } from '@ai-idp/mcp-client';
+import { ActionManager, type ActionManagerConfig } from '@ai-idp/action-manager';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type {
   ConversationContext,
   AgentIntent,
@@ -21,6 +23,14 @@ import type {
   MultiAgentWorkflow,
   MCPResponse
 } from '@ai-idp/types';
+import {
+  ActionIntent,
+  ActionStatus,
+  AgentName,
+  CreateActionRequest,
+  ActionRecord,
+  ActionQueryOptions
+} from '@ai-idp/action-manager';
 import { IntentClassifier } from '../routing/IntentClassifier';
 import { ContextManager } from '../context/ContextManager';
 import { ResponseCoordinator } from './ResponseCoordinator';
@@ -51,6 +61,9 @@ export interface MetaAgentConfig {
     maxRetries: number;
     retryDelay?: number;
   };
+  actionManager?: ActionManagerConfig & {
+    enabled: boolean;
+  };
 }
 
 const MetaAgentConfigSchema = z.object({
@@ -76,7 +89,13 @@ const MetaAgentConfigSchema = z.object({
     clientTimeout: z.number().default(30000),
     maxRetries: z.number().default(3),
     retryDelay: z.number().default(1000)
-  })
+  }),
+  actionManager: z.object({
+    enabled: z.boolean().default(false),
+    dynamoDbClient: z.any(),
+    tableName: z.string().default('ai-idp-actions'),
+    ttlDays: z.number().default(30)
+  }).optional()
 });
 
 /**
@@ -134,6 +153,7 @@ export class MetaAgent {
   private intentClassifier: IntentClassifier;
   private contextManager: ContextManager;
   private responseCoordinator: ResponseCoordinator;
+  private actionManager?: ActionManager;
   // ApprovalModule placeholder - will be implemented when core package is available
   private logger: Logger;
   private isInitialized = false;
@@ -188,6 +208,15 @@ export class MetaAgent {
       level: 'info',
       environment: (process.env.NODE_ENV as any) || 'development'
     });
+
+    // Initialize Action Manager if enabled
+    if (this.config.actionManager?.enabled) {
+      this.actionManager = new ActionManager({
+        dynamoDbClient: this.config.actionManager.dynamoDbClient,
+        tableName: this.config.actionManager.tableName,
+        ttlDays: this.config.actionManager.ttlDays
+      });
+    }
 
     // Initialize sub-components
     this.intentClassifier = new IntentClassifier(this.anthropic, this.openai, this.logger);
@@ -268,6 +297,21 @@ export class MetaAgent {
         if (process.env.NODE_ENV !== 'development') {
           throw error;
         }
+      }
+
+      // Initialize Action Manager if enabled
+      if (this.actionManager) {
+        try {
+          // Action Manager doesn't have an initialize method - it's ready on construction
+          this.logger.info({}, 'Action Manager initialized successfully');
+        } catch (error) {
+          this.logger.error({ error: error?.message || error }, 'Action Manager initialization failed');
+          if (process.env.NODE_ENV !== 'development') {
+            throw error;
+          }
+        }
+      } else {
+        this.logger.info({}, 'Action Manager disabled - using direct agent communication');
       }
 
       // Initialize approval module (placeholder - will be implemented when core package is available)
@@ -895,8 +939,121 @@ export class MetaAgent {
 
   /**
    * Route intent to appropriate focused agents
+   * Uses distributed Action Manager when enabled, otherwise direct communication
    */
   private async routeToAgents(
+    intent: AgentIntent,
+    context: ConversationContext
+  ): Promise<AgentResponse[]> {
+    // Use Action Manager for distributed execution if enabled
+    if (this.actionManager && this.shouldUseActionManager(intent)) {
+      return await this.routeViaActionManager(intent, context);
+    }
+    
+    // Fall back to direct agent communication
+    return await this.routeDirectly(intent, context);
+  }
+
+  /**
+   * Determine if this intent should use distributed Action Manager
+   */
+  private shouldUseActionManager(intent: AgentIntent): boolean {
+    // Use Action Manager for infrastructure operations that benefit from tracking
+    return intent.agent === 'infrastructure' && 
+           ['deployApplication', 'scaleResource', 'provisionDatabase'].includes(intent.action);
+  }
+
+  /**
+   * Route via distributed Action Manager
+   */
+  private async routeViaActionManager(
+    intent: AgentIntent,
+    context: ConversationContext
+  ): Promise<AgentResponse[]> {
+    if (!this.actionManager) {
+      throw new Error('Action Manager not initialized');
+    }
+
+    try {
+      // Map intent to action request
+      const actionRequest: CreateActionRequest = {
+        userId: context.userId,
+        sessionId: context.conversationId, // Use conversationId as sessionId
+        conversationId: context.conversationId,
+        agentName: intent.agent as AgentName,
+        toolName: intent.action,
+        intent: this.mapToActionIntent(intent.action),
+        toolParameters: intent.parameters,
+        environment: context.metadata?.environment || 'development',
+        priority: 'normal'
+      };
+
+      // Create action record
+      const actionRecord = await this.actionManager.createAction(actionRequest);
+      
+      this.logger.info({ actionId: actionRecord.actionId, toolName: intent.action }, 'Created distributed action');
+
+      // Return immediate response with action tracking info
+      const agentResponse: AgentResponse = {
+        agentId: intent.agent,
+        success: true,
+        message: `Action ${intent.action} queued for background execution`,
+        data: {
+          actionId: actionRecord.actionId,
+          status: actionRecord.status,
+          estimatedDuration: actionRecord.executionMetadata.estimatedDuration
+        },
+        metadata: {
+          agent: intent.agent,
+          action: intent.action,
+          hasDetailedResponse: true,
+          executionTime: 0,
+          contextUsed: [],
+          actionId: actionRecord.actionId,
+          trackingEnabled: true
+        },
+        detailedResponse: `## 🚀 Action Queued for Background Execution\n\n` +
+          `**Action ID:** \`${actionRecord.actionId}\`\n` +
+          `**Tool:** ${intent.action}\n` +
+          `**Status:** ${actionRecord.status}\n` +
+          `**Estimated Duration:** ${(actionRecord.executionMetadata.estimatedDuration || 0) / 1000}s\n\n` +
+          `Your request has been queued for distributed execution. You can track its progress using the action ID above.`
+      };
+
+      return [agentResponse];
+
+    } catch (error: any) {
+      this.logger.error({ error: error.message, intent }, 'Failed to route via Action Manager');
+      
+      // Fall back to direct routing on error
+      this.logger.warn({}, 'Falling back to direct agent communication');
+      return await this.routeDirectly(intent, context);
+    }
+  }
+
+  /**
+   * Map action name to ActionIntent enum
+   */
+  private mapToActionIntent(actionName: string): ActionIntent {
+    const mapping: Record<string, ActionIntent> = {
+      'deployApplication': ActionIntent.DEPLOY,
+      'scaleResource': ActionIntent.SCALE,
+      'provisionDatabase': ActionIntent.DEPLOY,
+      'getResourceStatus': ActionIntent.MONITOR,
+      'getResourceLogs': ActionIntent.INVESTIGATE,
+      'analyzeMetrics': ActionIntent.INVESTIGATE,
+      'analyzeIncident': ActionIntent.INVESTIGATE,
+      'generateKubectlCommand': ActionIntent.AI_GENERATE,
+      'generateKubernetesManifest': ActionIntent.AI_GENERATE
+    };
+    
+    return mapping[actionName] || ActionIntent.DEPLOY;
+  }
+
+  /**
+   * Direct agent routing (original implementation)
+   */
+  private async routeDirectly(
     intent: AgentIntent,
     context: ConversationContext
   ): Promise<AgentResponse[]> {
@@ -1391,6 +1548,68 @@ export class MetaAgent {
     }
 
     this.logger.info({ providers }, 'AI providers validated');
+  }
+
+  /**
+   * Get action status by action ID
+   * Used by web app to track distributed actions
+   */
+  async getActionStatus(actionId: string): Promise<ActionRecord | null> {
+    if (!this.actionManager) {
+      throw new Error('Action Manager not enabled');
+    }
+    
+    return await this.actionManager.getAction(actionId);
+  }
+
+  /**
+   * List user actions
+   * Used by web app to show action history
+   */
+  async listUserActions(userId: string, options?: ActionQueryOptions): Promise<ActionRecord[]> {
+    if (!this.actionManager) {
+      throw new Error('Action Manager not enabled');
+    }
+    
+    return await this.actionManager.getActionsByUser(userId, options);
+  }
+
+  /**
+   * List session actions
+   * Used by web app to show current conversation actions
+   */
+  async listSessionActions(sessionId: string, options?: ActionQueryOptions): Promise<ActionRecord[]> {
+    if (!this.actionManager) {
+      throw new Error('Action Manager not enabled');
+    }
+    
+    return await this.actionManager.getActionsBySession(sessionId, options);
+  }
+
+  /**
+   * Get action statistics
+   * Used by web app for monitoring dashboard
+   */
+  async getActionStatistics(): Promise<any> {
+    if (!this.actionManager) {
+      return {
+        total: 0,
+        pending: 0,
+        running: 0,
+        completed: 0,
+        failed: 0,
+        byAgent: {}
+      };
+    }
+    
+    return await this.actionManager.getActionStatistics();
+  }
+
+  /**
+   * Check if Action Manager is enabled
+   */
+  isActionManagerEnabled(): boolean {
+    return !!this.actionManager;
   }
 
   /**

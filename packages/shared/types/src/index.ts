@@ -271,6 +271,19 @@ export interface AgentResponse {
      * @example "low" | "medium" | "high" | "critical"
      */
     riskLevel?: string;
+
+    /** 
+     * Action ID for distributed action tracking
+     * Used when operations are routed through Action Manager
+     * @example "action-abc123"
+     */
+    actionId?: string;
+
+    /** 
+     * Whether distributed action tracking is enabled for this operation
+     * Used by UI to show tracking capabilities
+     */
+    trackingEnabled?: boolean;
   };
 
   /** 

@@ -193,6 +193,7 @@ export interface ActionDefinition {
     cpu?: string;
     memory?: string;
     storage?: string;
+    gpu?: string;
   };
 }
 

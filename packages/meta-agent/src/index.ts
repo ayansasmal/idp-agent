@@ -4,6 +4,7 @@ import { ContextManager } from './context/ContextManager';
 import { ResponseCoordinator } from './agent/ResponseCoordinator';
 import { createLogger } from '@ai-idp/utils';
 import type { Logger } from 'pino';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import dotenv from 'dotenv';
 
 // Load environment variables from root directory
@@ -59,6 +60,22 @@ export function createMetaAgent(overrides?: Partial<MetaAgentConfig>): MetaAgent
       clientTimeout: parseInt(process.env.MCP_CLIENT_TIMEOUT || '30000', 10),
       maxRetries: parseInt(process.env.MCP_MAX_RETRIES || '3', 10),
       retryDelay: parseInt(process.env.MCP_RETRY_DELAY || '1000', 10)
+    },
+
+    // Action Manager configuration
+    actionManager: process.env.ACTION_MANAGER_ENABLED === 'true' ? {
+      enabled: true,
+      dynamoDbClient: new DynamoDBClient({
+        region: process.env.AWS_REGION || 'us-east-1',
+        endpoint: process.env.AWS_ENDPOINT_URL || undefined
+      }),
+      tableName: process.env.ACTION_MANAGER_TABLE_NAME || 'ai-idp-actions',
+      ttlDays: parseInt(process.env.ACTION_MANAGER_TTL_DAYS || '30', 10)
+    } : {
+      enabled: false,
+      dynamoDbClient: null,
+      tableName: '',
+      ttlDays: 30
     },
 
     ...overrides
@@ -212,6 +229,100 @@ export async function startMetaAgentService(port: number = 3000): Promise<void> 
         logger.error({ error: error.message, stack: error.stack }, 'Failed to reject request');
         reply.code(500);
         return { error: 'Failed to reject request', details: error.message };
+      }
+    });
+
+    // Action tracking endpoints
+    
+    // Get action status by ID
+    fastify.get('/actions/:actionId', async (request: any, reply: any) => {
+      try {
+        const { actionId } = request.params;
+        
+        if (!metaAgent.isActionManagerEnabled()) {
+          reply.code(404);
+          return { error: 'Action Manager not enabled' };
+        }
+        
+        logger.info({ actionId }, 'Getting action status');
+        const action = await metaAgent.getActionStatus(actionId);
+        
+        if (!action) {
+          reply.code(404);
+          return { error: 'Action not found' };
+        }
+        
+        logger.info({ actionId, status: action.status }, 'Action status retrieved');
+        return { success: true, action };
+        
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to get action status');
+        reply.code(500);
+        return { error: 'Failed to get action status', details: error.message };
+      }
+    });
+    
+    // List user actions
+    fastify.get('/actions/user/:userId', async (request: any, reply: any) => {
+      try {
+        const { userId } = request.params;
+        const { limit, offset } = request.query;
+        
+        if (!metaAgent.isActionManagerEnabled()) {
+          reply.code(404);
+          return { error: 'Action Manager not enabled' };
+        }
+        
+        logger.info({ userId, limit, offset }, 'Listing user actions');
+        const actions = await metaAgent.listUserActions(userId, { limit, offset });
+        
+        logger.info({ userId, actionCount: actions.length }, 'User actions retrieved');
+        return { success: true, actions };
+        
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to list user actions');
+        reply.code(500);
+        return { error: 'Failed to list user actions', details: error.message };
+      }
+    });
+    
+    // List session actions
+    fastify.get('/actions/session/:sessionId', async (request: any, reply: any) => {
+      try {
+        const { sessionId } = request.params;
+        const { limit, offset } = request.query;
+        
+        if (!metaAgent.isActionManagerEnabled()) {
+          reply.code(404);
+          return { error: 'Action Manager not enabled' };
+        }
+        
+        logger.info({ sessionId, limit, offset }, 'Listing session actions');
+        const actions = await metaAgent.listSessionActions(sessionId, { limit, offset });
+        
+        logger.info({ sessionId, actionCount: actions.length }, 'Session actions retrieved');
+        return { success: true, actions };
+        
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to list session actions');
+        reply.code(500);
+        return { error: 'Failed to list session actions', details: error.message };
+      }
+    });
+    
+    // Get action statistics
+    fastify.get('/actions/stats', async (request: any, reply: any) => {
+      try {
+        logger.info({}, 'Getting action statistics');
+        const stats = await metaAgent.getActionStatistics();
+        
+        logger.info({ stats }, 'Action statistics retrieved');
+        return { success: true, statistics: stats };
+        
+      } catch (error: any) {
+        logger.error({ error: error.message, stack: error.stack }, 'Failed to get action statistics');
+        reply.code(500);
+        return { error: 'Failed to get action statistics', details: error.message };
       }
     });
 

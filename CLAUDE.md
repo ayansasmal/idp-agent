@@ -72,7 +72,14 @@ npm run dev:web       # Web app (port 3002)
 - **Web Application**: Complete Next.js UI with chat and approval workflows
 - **Shared Libraries**: @ai-idp/utils, types, mcp-client, qdrant-client
 
-## Recent Improvements ✨ (2025-01-30)
+## Recent Improvements ✨ (2025-09-03)
+
+- **✅ Completed Meta-Agent Action Manager Integration**: Full distributed action tracking support
+  - Meta-Agent can now route infrastructure requests through Action Manager
+  - Hybrid routing: distributed tracking for complex operations, direct for simple ones
+  - New API endpoints for action status, user actions, session actions, and statistics
+  - Backwards compatible: falls back to direct agent communication when Action Manager disabled
+  - Real-time action tracking with actionId metadata in responses
 
 - **✅ Fixed Infrastructure Agent Timeout Handling**: Deployment timeouts are now non-fatal
   - Graceful 5-minute timeout with informative UI feedback

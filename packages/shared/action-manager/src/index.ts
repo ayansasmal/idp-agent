@@ -8,7 +8,7 @@
 export * from './types/ActionTypes';
 
 // Services
-export { ActionManager } from './services/ActionManager';
+export { ActionManager, type ActionManagerConfig } from './services/ActionManager';
 export { 
   ActionManagerService, 
   getActionManagerService, 
