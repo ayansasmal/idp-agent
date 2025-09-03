@@ -18,6 +18,9 @@ export enum ActionType {
   STATUS_CHECK = 'status-check',
   GET_LOGS = 'get-logs',
   PROVISION_DB = 'provision-db',
+  // AI-Powered Infrastructure Actions
+  AI_KUBECTL_COMMAND = 'ai-kubectl-command',
+  AI_K8S_MANIFEST = 'ai-k8s-manifest',
   // Observability Actions  
   ANALYZE_LOGS = 'analyze-logs',
   MONITOR_METRICS = 'monitor-metrics',
@@ -34,7 +37,8 @@ export enum ActionIntent {
   MONITOR = 'monitor',
   INVESTIGATE = 'investigate',
   ORCHESTRATE = 'orchestrate',
-  APPROVE = 'approve'
+  APPROVE = 'approve',
+  AI_GENERATE = 'ai-generate' // For AI-powered generation tasks
 }
 
 export enum AgentName {

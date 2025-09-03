@@ -127,6 +127,48 @@ const INFRASTRUCTURE_ACTIONS: Record<string, ActionDefinition> = {
       memory: 'medium',
       storage: 'high'
     }
+  },
+
+  'ai-kubectl-command': {
+    actionType: ActionType.AI_KUBECTL_COMMAND,
+    tool: 'generateKubectlCommand',
+    defaultTimeout: 120000, // 2 minutes
+    completionCriteria: {
+      type: 'immediate' // AI generation is immediate
+    },
+    retryPolicy: {
+      maxRetries: 2,
+      retryDelay: 30000, // 30 seconds
+      backoffMultiplier: 1.5,
+      retryableErrors: ['ai-timeout', 'model-unavailable', 'ollama-down']
+    },
+    estimatedDuration: 15000, // 15 seconds average
+    resourceRequirements: {
+      cpu: 'high', // AI model inference
+      memory: 'high', // 3B model needs memory
+      gpu: 'optional' // Can use GPU if available
+    }
+  },
+
+  'ai-k8s-manifest': {
+    actionType: ActionType.AI_K8S_MANIFEST,
+    tool: 'generateKubernetesManifest',
+    defaultTimeout: 300000, // 5 minutes
+    completionCriteria: {
+      type: 'immediate' // AI generation is immediate
+    },
+    retryPolicy: {
+      maxRetries: 2,
+      retryDelay: 45000, // 45 seconds
+      backoffMultiplier: 1.5,
+      retryableErrors: ['ai-timeout', 'model-unavailable', 'ollama-down', 'manifest-validation-failed']
+    },
+    estimatedDuration: 30000, // 30 seconds average (more complex than commands)
+    resourceRequirements: {
+      cpu: 'high', // AI model inference
+      memory: 'high', // 3B model needs memory
+      gpu: 'optional' // Can use GPU if available
+    }
   }
 };
 

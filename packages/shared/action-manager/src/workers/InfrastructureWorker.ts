@@ -62,6 +62,12 @@ export class InfrastructureWorker extends ActionWorker {
         case 'provisionDatabase':
           return await this.executeProvisionDatabase();
           
+        case 'generateKubectlCommand':
+          return await this.executeGenerateKubectlCommand();
+          
+        case 'generateKubernetesManifest':
+          return await this.executeGenerateKubernetesManifest();
+          
         default:
           throw new Error(`Unknown infrastructure tool: ${this.actionRecord.toolName}`);
       }
@@ -102,6 +108,16 @@ export class InfrastructureWorker extends ActionWorker {
           
         case 'provisionDatabase':
           return await this.validateDatabaseProvisioning();
+          
+        case 'generateKubectlCommand':
+        case 'generateKubernetesManifest':
+          // AI generation actions are immediate
+          return {
+            isComplete: true,
+            progress: 100,
+            status: ActionStatus.COMPLETED,
+            message: 'AI generation completed'
+          };
           
         default:
           return {
@@ -287,6 +303,286 @@ export class InfrastructureWorker extends ActionWorker {
       message: `Database ${dbName} (${dbType}) provisioned in ${namespace}`,
       executionTime: 0,
       resourcesCreated: [`deployment/${dbName}`, `service/${dbName}`]
+    };
+  }
+
+  /**
+   * Generate kubectl command from natural language using AI
+   */
+  private async executeGenerateKubectlCommand(): Promise<ToolExecutionResult> {
+    const params = this.actionRecord.executionMetadata.toolParameters || {};
+    const { intent, namespace, includeClusterContext = true } = params;
+
+    if (!intent) {
+      throw new Error('Missing required parameter: intent');
+    }
+
+    try {
+      // Simulate AI-powered kubectl command generation
+      // In production, this would call the InfrastructureAgent's generateKubectlCommand method
+      const startTime = Date.now();
+      
+      console.log(`[AI WORKER] Generating kubectl command for: "${intent}"`);
+      
+      // Simulate AI processing delay
+      await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+      
+      // Mock AI response based on common intents
+      const aiResponse = this.mockAIKubectlGeneration(intent, namespace);
+      
+      const executionTime = Date.now() - startTime;
+
+      return {
+        success: true,
+        data: {
+          command: aiResponse.command,
+          explanation: aiResponse.explanation,
+          riskLevel: aiResponse.riskLevel,
+          confidence: aiResponse.confidence,
+          warnings: aiResponse.warnings,
+          intent,
+          namespace,
+          aiProcessingTime: executionTime
+        },
+        message: `AI generated kubectl command: ${aiResponse.command}`,
+        executionTime,
+        resourcesCreated: []
+      };
+    } catch (error) {
+      throw new Error(`AI kubectl generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Generate Kubernetes manifest from natural language using AI
+   */
+  private async executeGenerateKubernetesManifest(): Promise<ToolExecutionResult> {
+    const params = this.actionRecord.executionMetadata.toolParameters || {};
+    const { intent, resourceType, appName, namespace = 'default', parameters } = params;
+
+    if (!intent || !resourceType || !appName) {
+      throw new Error('Missing required parameters: intent, resourceType, appName');
+    }
+
+    try {
+      // Simulate AI-powered manifest generation
+      // In production, this would call the InfrastructureAgent's generateKubernetesManifest method
+      const startTime = Date.now();
+      
+      console.log(`[AI WORKER] Generating ${resourceType} manifest for: "${intent}"`);
+      
+      // Simulate AI processing delay (manifests take longer)
+      await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 5000));
+      
+      // Mock AI manifest generation
+      const aiResponse = this.mockAIManifestGeneration(intent, resourceType, appName, namespace, parameters);
+      
+      const executionTime = Date.now() - startTime;
+
+      return {
+        success: aiResponse.isValid,
+        data: {
+          manifest: aiResponse.manifest,
+          metadata: aiResponse.metadata,
+          isValid: aiResponse.isValid,
+          validationErrors: aiResponse.validationErrors,
+          recommendations: aiResponse.recommendations,
+          intent,
+          resourceType,
+          appName,
+          namespace,
+          aiProcessingTime: executionTime
+        },
+        message: aiResponse.isValid 
+          ? `AI generated valid ${resourceType} manifest for ${appName}`
+          : `AI generated manifest with validation issues`,
+        error: aiResponse.isValid ? undefined : `Validation errors: ${aiResponse.validationErrors?.join(', ')}`,
+        executionTime,
+        resourcesCreated: aiResponse.isValid ? [`${resourceType.toLowerCase()}/${appName}`] : []
+      };
+    } catch (error) {
+      throw new Error(`AI manifest generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // AI Mock Methods (for simulation)
+
+  /**
+   * Mock AI kubectl command generation for testing
+   */
+  private mockAIKubectlGeneration(intent: string, namespace?: string): {
+    command: string;
+    explanation: string;
+    riskLevel: 'low' | 'medium' | 'high';
+    confidence: number;
+    warnings?: string[];
+  } {
+    const lowerIntent = intent.toLowerCase();
+    
+    // Pattern matching for common kubectl operations
+    if (lowerIntent.includes('list') || lowerIntent.includes('show') || lowerIntent.includes('get')) {
+      if (lowerIntent.includes('pod')) {
+        return {
+          command: `kubectl get pods${namespace ? ` -n ${namespace}` : ''}`,
+          explanation: `List all pods${namespace ? ` in the ${namespace} namespace` : ''}`,
+          riskLevel: 'low',
+          confidence: 0.95
+        };
+      }
+      if (lowerIntent.includes('deployment')) {
+        return {
+          command: `kubectl get deployments${namespace ? ` -n ${namespace}` : ''}`,
+          explanation: `List all deployments${namespace ? ` in the ${namespace} namespace` : ''}`,
+          riskLevel: 'low',
+          confidence: 0.95
+        };
+      }
+    }
+    
+    if (lowerIntent.includes('scale') && lowerIntent.includes('replicas')) {
+      const replicaMatch = lowerIntent.match(/(\d+)\s*replica/);
+      const deploymentMatch = lowerIntent.match(/(\w+)\s*deployment/);
+      const replicas = replicaMatch ? replicaMatch[1] : '3';
+      const deployment = deploymentMatch ? deploymentMatch[1] : 'app';
+      
+      return {
+        command: `kubectl scale deployment ${deployment} --replicas=${replicas}${namespace ? ` -n ${namespace}` : ''}`,
+        explanation: `Scale the ${deployment} deployment to ${replicas} replicas`,
+        riskLevel: replicas === '0' ? 'high' : 'medium',
+        confidence: 0.88,
+        warnings: replicas === '0' ? ['Scaling to 0 replicas will make the application unavailable'] : []
+      };
+    }
+    
+    if (lowerIntent.includes('delete')) {
+      return {
+        command: `kubectl delete deployment app${namespace ? ` -n ${namespace}` : ''}`,
+        explanation: `Delete deployment (WARNING: This is a destructive operation)`,
+        riskLevel: 'high',
+        confidence: 0.75,
+        warnings: ['This operation will permanently delete the deployment and all its pods']
+      };
+    }
+    
+    // Default fallback
+    return {
+      command: `kubectl get all${namespace ? ` -n ${namespace}` : ''}`,
+      explanation: `Show all resources${namespace ? ` in the ${namespace} namespace` : ''} (fallback for unclear intent)`,
+      riskLevel: 'low',
+      confidence: 0.60,
+      warnings: ['Intent was unclear, generated generic command']
+    };
+  }
+
+  /**
+   * Mock AI manifest generation for testing
+   */
+  private mockAIManifestGeneration(
+    intent: string, 
+    resourceType: string, 
+    appName: string, 
+    namespace: string,
+    parameters?: any
+  ): {
+    manifest: string;
+    metadata: { kind: string; name: string; namespace: string };
+    isValid: boolean;
+    validationErrors?: string[];
+    recommendations?: string[];
+  } {
+    const replicas = parameters?.replicas || 3;
+    const image = parameters?.image || 'nginx:latest';
+    
+    let manifest = '';
+    const metadata = { kind: resourceType, name: appName, namespace };
+    const recommendations = [];
+    
+    switch (resourceType.toLowerCase()) {
+      case 'deployment':
+        manifest = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${appName}
+  namespace: ${namespace}
+  labels:
+    app: ${appName}
+spec:
+  replicas: ${replicas}
+  selector:
+    matchLabels:
+      app: ${appName}
+  template:
+    metadata:
+      labels:
+        app: ${appName}
+    spec:
+      containers:
+      - name: ${appName}
+        image: ${image}
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi`;
+        
+        if (!parameters?.resources) {
+          recommendations.push('Consider adding resource limits and requests for better resource management');
+        }
+        if (image.includes(':latest')) {
+          recommendations.push('Consider using specific image tags instead of :latest for reproducible deployments');
+        }
+        break;
+        
+      case 'service':
+        manifest = `apiVersion: v1
+kind: Service
+metadata:
+  name: ${appName}
+  namespace: ${namespace}
+spec:
+  selector:
+    app: ${appName}
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP`;
+        break;
+        
+      case 'configmap':
+        manifest = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${appName}
+  namespace: ${namespace}
+data:
+  config.yaml: |
+    # Configuration for ${appName}
+    app:
+      name: ${appName}
+      environment: production`;
+        break;
+        
+      default:
+        return {
+          manifest: '',
+          metadata,
+          isValid: false,
+          validationErrors: [`Unsupported resource type: ${resourceType}`],
+          recommendations: ['Try using Deployment, Service, or ConfigMap']
+        };
+    }
+    
+    return {
+      manifest,
+      metadata,
+      isValid: true,
+      validationErrors: [],
+      recommendations
     };
   }
 
