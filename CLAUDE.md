@@ -81,6 +81,39 @@ npm run dev:web       # Web app (port 3002)
   - Backwards compatible: falls back to direct agent communication when Action Manager disabled
   - Real-time action tracking with actionId metadata in responses
 
+  ```mermaid
+  flowchart TD
+      A[User Request] --> B[Meta-Agent]
+      B --> C{Action Manager\nEnabled?}
+      
+      C -->|Yes| D{Infrastructure\nOperation?}
+      C -->|No| E[Direct Agent Call]
+      
+      D -->|Yes| F[Should Use\nAction Manager?]
+      D -->|No| E
+      
+      F -->|Yes| G[Create Action Record]
+      F -->|No| E
+      
+      G --> H[Store in DynamoDB]
+      H --> I[Return Tracking Response\nwith actionId]
+      
+      I --> J[Background Worker\nPicks Up Action]
+      J --> K[Execute Tool]
+      K --> L[Update Action Status]
+      
+      E --> M[Call Agent via MCP]
+      M --> N[Return Immediate Response]
+      
+      L --> O[Action Complete]
+      N --> O
+      
+      style G fill:#e1f5fe
+      style I fill:#e8f5e8
+      style J fill:#fff3e0
+      style E fill:#f3e5f5
+  ```
+
 - **✅ Fixed Infrastructure Agent Timeout Handling**: Deployment timeouts are now non-fatal
   - Graceful 5-minute timeout with informative UI feedback
   - Automatic health check analysis for timed-out deployments
