@@ -84,6 +84,12 @@ npm run dev:web       # Web app (port 3002)
   - Deterministic UUID v5 generation from string identifiers
   - Prevents crashes when storing execution patterns and contexts
 
+- **🤖 AI-Powered Kubernetes Operations**: Integrated K8sAIOps/kubernetes_operator_3b_peft_gguf model
+  - Natural language to kubectl command generation with risk assessment
+  - AI-powered Kubernetes YAML manifest creation from descriptions
+  - Specialized 3B parameter model trained on ~1,500 K8s operations
+  - Confidence scoring and safety warnings for all generated operations
+
 ## 🚧 Current Development: Distributed Action Tracking System
 
 **Status**: Phase 3 Complete ✅ → Phase 4 Next 🟡

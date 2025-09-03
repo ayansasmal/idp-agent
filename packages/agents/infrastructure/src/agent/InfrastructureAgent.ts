@@ -9,6 +9,7 @@ import type {
 } from '@ai-idp/types';
 import { KubernetesOperations } from '../kubernetes/KubernetesOperations';
 import { CloudOperations } from '../cloud/CloudOperations';
+import { KubernetesAI } from '../ai/KubernetesAI';
 
 /**
  * Configuration interface for Infrastructure Agent
@@ -53,6 +54,18 @@ export interface InfrastructureAgentConfig {
     /** Windmill workspace identifier */
     workspace: string;
   };
+
+  /** Optional AI-powered Kubernetes operations configuration */
+  kubernetesAI?: {
+    /** Ollama server URL */
+    ollamaUrl: string;
+    /** Kubernetes AI model name */
+    modelName: string;
+    /** Temperature for AI responses */
+    temperature?: number;
+    /** Request timeout in milliseconds */
+    timeout?: number;
+  };
 }
 
 /**
@@ -81,6 +94,13 @@ const InfrastructureAgentConfigSchema = z.object({
     baseUrl: z.string().url(),
     token: z.string().optional(),
     workspace: z.string().default('admins')
+  }).optional(),
+  /** Optional Kubernetes AI configuration with defaults */
+  kubernetesAI: z.object({
+    ollamaUrl: z.string().url().default('http://localhost:11434'),
+    modelName: z.string().default('hf.co/K8sAIOps/kubernetes_operator_3b_peft_gguf:latest'),
+    temperature: z.number().min(0).max(1).default(0.1),
+    timeout: z.number().default(30000)
   }).optional()
 });
 
@@ -162,6 +182,7 @@ export class InfrastructureAgent {
   private qdrantClient?: QdrantContextClient;
   private k8sOperations: KubernetesOperations;
   private cloudOperations: CloudOperations;
+  private kubernetesAI?: KubernetesAI;
   private isInitialized = false;
 
   // Agent capabilities definition
@@ -208,6 +229,16 @@ export class InfrastructureAgent {
     // Initialize sub-components
     this.k8sOperations = new KubernetesOperations(this.config, this.logger);
     this.cloudOperations = new CloudOperations(this.config, this.logger);
+
+    // Initialize Kubernetes AI service if configured
+    if (this.config.kubernetesAI) {
+      this.kubernetesAI = new KubernetesAI({
+        ollamaUrl: this.config.kubernetesAI.ollamaUrl,
+        modelName: this.config.kubernetesAI.modelName,
+        temperature: this.config.kubernetesAI.temperature,
+        timeout: this.config.kubernetesAI.timeout
+      });
+    }
 
     // Initialize Qdrant client if configured
     if (this.config.qdrant) {
@@ -276,6 +307,16 @@ export class InfrastructureAgent {
       if (this.qdrantClient) {
         await this.qdrantClient.initialize();
         this.logger.info('Qdrant context client initialized');
+      }
+
+      // Validate Kubernetes AI service if available
+      if (this.kubernetesAI) {
+        const isAIServiceValid = await this.kubernetesAI.validateService();
+        if (isAIServiceValid) {
+          this.logger.info('Kubernetes AI service initialized and validated');
+        } else {
+          this.logger.warn('Kubernetes AI service failed validation - AI features will be disabled');
+        }
       }
 
       this.isInitialized = true;
@@ -807,6 +848,34 @@ export class InfrastructureAgent {
           },
           required: ['databaseType', 'name']
         }
+      },
+      {
+        name: 'generateKubectlCommand',
+        description: 'Generate kubectl commands from natural language using AI',
+        parameters: {
+          type: 'object',
+          properties: {
+            intent: { type: 'string', description: 'Natural language description of desired kubectl operation' },
+            namespace: { type: 'string', description: 'Kubernetes namespace for context' },
+            includeClusterContext: { type: 'boolean', description: 'Include current cluster context in AI prompt (default: true)' }
+          },
+          required: ['intent']
+        }
+      },
+      {
+        name: 'generateKubernetesManifest',
+        description: 'Generate Kubernetes YAML manifests from natural language using AI',
+        parameters: {
+          type: 'object',
+          properties: {
+            intent: { type: 'string', description: 'Natural language description of desired resource' },
+            resourceType: { type: 'string', description: 'Kubernetes resource type (deployment, service, configmap, etc.)' },
+            appName: { type: 'string', description: 'Application name for the resource' },
+            namespace: { type: 'string', description: 'Target namespace (default: default)' },
+            parameters: { type: 'object', description: 'Additional parameters for manifest generation' }
+          },
+          required: ['intent', 'resourceType', 'appName']
+        }
       }
     ];
 
@@ -821,13 +890,215 @@ export class InfrastructureAgent {
         'scaling',
         'monitoring',
         'cloud-provisioning',
-        'container-orchestration'
+        'container-orchestration',
+        'ai-powered-operations',
+        'natural-language-to-kubectl',
+        'manifest-generation'
       ],
       endpoints: {
         mcp: `http://localhost:3001/mcp`,
         health: `http://localhost:3001/health`
       }
     };
+  }
+
+  /**
+   * Generate kubectl command from natural language using AI
+   */
+  async generateKubectlCommand(params: {
+    intent: string;
+    namespace?: string;
+    includeClusterContext?: boolean;
+    context: ConversationContext;
+  }): Promise<any> {
+    const startTime = Date.now();
+    const operationId = uuidv4();
+
+    this.logger.info({
+      operationId,
+      intent: params.intent,
+      namespace: params.namespace,
+      includeClusterContext: params.includeClusterContext
+    }, 'Generating kubectl command using AI');
+
+    try {
+      // Check if AI service is available
+      if (!this.kubernetesAI) {
+        throw new Error('Kubernetes AI service not configured or available');
+      }
+
+      // Gather cluster context if requested
+      let clusterContext;
+      if (params.includeClusterContext !== false) {
+        try {
+          // Basic cluster context - can be expanded when KubernetesOperations has more methods
+          clusterContext = {
+            namespace: params.namespace || 'default',
+            timestamp: new Date().toISOString()
+          };
+        } catch (contextError) {
+          this.logger.warn({ error: contextError.message }, 'Failed to gather cluster context, proceeding without it');
+          clusterContext = undefined;
+        }
+      }
+
+      // Generate kubectl command using AI
+      const aiResponse = await this.kubernetesAI.generateKubectlCommand({
+        intent: params.intent,
+        namespace: params.namespace,
+        clusterContext
+      });
+
+      const duration = Date.now() - startTime;
+
+      // Store operation context for learning
+      await this.storeOperationContext(
+        operationId,
+        'generateKubectlCommand',
+        params,
+        aiResponse,
+        true
+      );
+
+      this.logger.info({
+        operationId,
+        duration,
+        command: aiResponse.command,
+        riskLevel: aiResponse.riskLevel,
+        confidence: aiResponse.confidence
+      }, 'AI kubectl command generation completed');
+
+      return {
+        success: true,
+        command: aiResponse.command,
+        explanation: aiResponse.explanation,
+        riskLevel: aiResponse.riskLevel,
+        warnings: aiResponse.warnings,
+        confidence: aiResponse.confidence,
+        operationId,
+        duration
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      await this.storeOperationContext(
+        operationId,
+        'generateKubectlCommand',
+        params,
+        { error: error.message },
+        false
+      );
+
+      this.logger.error({
+        operationId,
+        duration,
+        error: error.message,
+        intent: params.intent
+      }, 'Failed to generate kubectl command');
+
+      return {
+        success: false,
+        error: error.message,
+        operationId,
+        duration
+      };
+    }
+  }
+
+  /**
+   * Generate Kubernetes YAML manifest from natural language using AI
+   */
+  async generateKubernetesManifest(params: {
+    intent: string;
+    resourceType: string;
+    appName: string;
+    namespace?: string;
+    parameters?: Record<string, any>;
+    context: ConversationContext;
+  }): Promise<any> {
+    const startTime = Date.now();
+    const operationId = uuidv4();
+
+    this.logger.info({
+      operationId,
+      intent: params.intent,
+      resourceType: params.resourceType,
+      appName: params.appName,
+      namespace: params.namespace
+    }, 'Generating Kubernetes manifest using AI');
+
+    try {
+      // Check if AI service is available
+      if (!this.kubernetesAI) {
+        throw new Error('Kubernetes AI service not configured or available');
+      }
+
+      // Generate manifest using AI
+      const aiResponse = await this.kubernetesAI.generateManifest({
+        intent: params.intent,
+        resourceType: params.resourceType,
+        appName: params.appName,
+        namespace: params.namespace || 'default',
+        parameters: params.parameters
+      });
+
+      const duration = Date.now() - startTime;
+
+      // Store operation context for learning
+      await this.storeOperationContext(
+        operationId,
+        'generateKubernetesManifest',
+        params,
+        aiResponse,
+        aiResponse.isValid
+      );
+
+      this.logger.info({
+        operationId,
+        duration,
+        kind: aiResponse.metadata.kind,
+        name: aiResponse.metadata.name,
+        isValid: aiResponse.isValid
+      }, 'AI manifest generation completed');
+
+      return {
+        success: true,
+        manifest: aiResponse.manifest,
+        metadata: aiResponse.metadata,
+        isValid: aiResponse.isValid,
+        validationErrors: aiResponse.validationErrors,
+        recommendations: aiResponse.recommendations,
+        operationId,
+        duration
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      await this.storeOperationContext(
+        operationId,
+        'generateKubernetesManifest',
+        params,
+        { error: error.message },
+        false
+      );
+
+      this.logger.error({
+        operationId,
+        duration,
+        error: error.message,
+        intent: params.intent,
+        resourceType: params.resourceType
+      }, 'Failed to generate Kubernetes manifest');
+
+      return {
+        success: false,
+        error: error.message,
+        operationId,
+        duration
+      };
+    }
   }
 
   /**
