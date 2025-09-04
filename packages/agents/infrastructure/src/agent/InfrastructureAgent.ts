@@ -1181,7 +1181,7 @@ export class InfrastructureAgent {
       const { ActionIntent, AgentName } = await import('@ai-idp/action-manager');
       
       // Map tool names to action intents
-      const actionIntentMap: Record<string, string> = {
+      const actionIntentMap = {
         'deployApplication': ActionIntent.DEPLOY,
         'scaleResource': ActionIntent.SCALE,
         'getResourceStatus': ActionIntent.MONITOR,
@@ -1194,35 +1194,37 @@ export class InfrastructureAgent {
       const actionIntent = actionIntentMap[toolName] || ActionIntent.DEPLOY;
 
       // Create action via Action Manager
-      const createResult = await this.actionManager!.createAction(
-        context.userId,
-        context.conversationId,
-        AgentName.INFRASTRUCTURE,
+      const actionRecord = await this.actionManager!.createAction({
+        userId: context.userId,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        agentName: AgentName.INFRASTRUCTURE,
         toolName,
-        actionIntent,
-        parameters
-      );
+        intent: actionIntent,
+        toolParameters: parameters,
+        environment: 'production'
+      });
 
-      if (!createResult.success) {
-        throw new Error(`Failed to create action: ${createResult.error}`);
+      if (!actionRecord) {
+        throw new Error(`Failed to create action`);
       }
 
       // Log that we're using distributed tracking
       this.logger.info({
-        actionId: createResult.actionId,
+        actionId: actionRecord.actionId,
         toolName,
         parameters
       }, 'Executing tool via distributed action tracking');
 
       // Get the action status (will be processed by workers)
-      const statusResult = await this.actionManager!.getActionStatus(createResult.actionId!);
+      const statusResult = await this.actionManager!.getAction(actionRecord.actionId);
       
       return {
         success: true,
-        actionId: createResult.actionId,
-        status: statusResult.success ? statusResult.actionRecord?.status : 'unknown',
-        message: `Action ${createResult.actionId} queued for distributed execution`,
-        data: statusResult.success ? statusResult.actionRecord : null,
+        actionId: actionRecord.actionId,
+        status: statusResult?.status || 'unknown',
+        message: `Action ${actionRecord.actionId} queued for distributed execution`,
+        data: statusResult || null,
         isDistributedAction: true
       };
 
@@ -1272,7 +1274,7 @@ export class InfrastructureAgent {
       };
     }
 
-    return await this.actionManager.getActionStatus(actionId);
+    return await this.actionManager.getAction(actionId);
   }
 
   /**
@@ -1286,7 +1288,7 @@ export class InfrastructureAgent {
       };
     }
 
-    return await this.actionManager.getUserActions(userId, options);
+    return await this.actionManager.getActionsByUser(userId, options);
   }
 
   /**

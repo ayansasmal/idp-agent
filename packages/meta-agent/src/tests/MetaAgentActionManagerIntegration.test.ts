@@ -267,7 +267,8 @@ describe('Meta-Agent Action Manager Integration', () => {
         failed: 1,
         byAgent: {
           [AgentName.INFRASTRUCTURE]: 8,
-          [AgentName.OBSERVABILITY]: 2
+          [AgentName.OBSERVABILITY]: 2,
+          [AgentName.META]: 0
         }
       };
 
@@ -354,12 +355,12 @@ describe('Meta-Agent Action Manager Integration', () => {
     it('should support both immediate and distributed responses', async () => {
       // Test that the Meta-Agent can handle both response types
       // This validates the hybrid architecture works correctly
-      
+
       // Mock successful action creation
       vi.spyOn(ActionManager.prototype, 'createAction').mockResolvedValue(mockActionRecord);
 
       const response = await metaAgent.processRequest(
-        'Deploy nginx with monitoring enabled', 
+        'Deploy nginx with monitoring enabled',
         testContext
       );
 

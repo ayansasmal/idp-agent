@@ -40,7 +40,7 @@ async function runAIExample() {
     // Example 1: Generate kubectl command from natural language
     console.log('📝 Example 1: Generate kubectl command');
     console.log('Intent: "show me all running pods in the production namespace"');
-    
+
     const commandResult = await agent.generateKubectlCommand({
       intent: 'show me all running pods in the production namespace',
       namespace: 'production',
@@ -48,7 +48,8 @@ async function runAIExample() {
       context: {
         conversationId: 'demo-conversation',
         userId: 'demo-user',
-        timestamp: new Date().toISOString(),
+        sessionId: 'demo-session',
+        history: [],
         metadata: { example: 'kubectl-generation' }
       }
     });
@@ -65,7 +66,7 @@ async function runAIExample() {
     // Example 2: Generate Kubernetes manifest from natural language
     console.log('📄 Example 2: Generate Kubernetes manifest');
     console.log('Intent: "create a nginx deployment with 3 replicas and resource limits"');
-    
+
     const manifestResult = await agent.generateKubernetesManifest({
       intent: 'create a nginx deployment with 3 replicas and resource limits',
       resourceType: 'Deployment',
@@ -83,7 +84,8 @@ async function runAIExample() {
       context: {
         conversationId: 'demo-conversation',
         userId: 'demo-user',
-        timestamp: new Date().toISOString(),
+        sessionId: 'demo-session',
+        history: [],
         metadata: { example: 'manifest-generation' }
       }
     });
@@ -104,7 +106,7 @@ async function runAIExample() {
 
     // Example 3: More complex scenarios
     console.log('🔧 Example 3: Complex kubectl operations');
-    
+
     const complexCommands = [
       'scale the nginx deployment to 5 replicas',
       'delete all failed pods in the kube-system namespace',
@@ -114,14 +116,15 @@ async function runAIExample() {
 
     for (const intent of complexCommands) {
       console.log(`\n🔍 Processing: "${intent}"`);
-      
+
       const result = await agent.generateKubectlCommand({
         intent,
         includeClusterContext: false, // Skip context for faster processing
         context: {
           conversationId: 'demo-conversation',
           userId: 'demo-user',
-          timestamp: new Date().toISOString(),
+          sessionId: 'demo-session',
+          history: [],
           metadata: { example: 'complex-operations' }
         }
       });
