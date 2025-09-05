@@ -11,7 +11,7 @@ Multi-agent AI platform that uses conversational AI to eliminate infrastructure 
 - **Infrastructure Agent**: K8s operations (port 3003) ✅ Production Ready
 - **Observability Agent**: SLM-powered monitoring (port 3005) ✅ Production Ready
 - **Shared Context**: Qdrant vector database for cross-agent memory
-- **Communication**: MCP (Model Context Protocol)
+- **Communication**: WebSocket + JSON-RPC 2.0 (via standardized agent communication library)
 
 ## Technology Stack
 
@@ -33,7 +33,8 @@ packages/
 ├── shared/                  # 📚 Common libraries
 │   ├── types/              # TypeScript definitions
 │   ├── utils/              # HTTP, logging, validation
-│   ├── mcp-client/         # Agent communication
+│   ├── mcp-client/         # Legacy MCP + WebSocket communication
+│   ├── agent-communication/ # ✅ Standardized WebSocket + JSON-RPC library
 │   └── qdrant-client/      # Vector database
 └── web-app/                # 🌐 Next.js UI (port 3002)
 ```

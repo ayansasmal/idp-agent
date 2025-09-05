@@ -1,5 +1,8 @@
 import { InfrastructureAgent, type InfrastructureAgentConfig } from './agent/InfrastructureAgent';
 import { InfrastructureMCPServer, InfrastructureHTTPServer } from './mcp/MCPServer';
+import { WebSocketInfrastructureMCPServer } from './mcp/WebSocketMCPServer';
+import { StandardInfrastructureAgent } from './mcp/StandardInfrastructureAgent';
+import { SimpleWebSocketMCPServer } from './mcp/SimpleWebSocketMCPServer';
 import { KubernetesOperations } from './kubernetes/KubernetesOperations';
 import { CloudOperations } from './cloud/CloudOperations';
 import { pino, type Logger } from 'pino';
@@ -13,6 +16,7 @@ export {
   InfrastructureAgent,
   InfrastructureMCPServer,
   InfrastructureHTTPServer,
+  WebSocketInfrastructureMCPServer,
   KubernetesOperations,
   CloudOperations,
   type InfrastructureAgentConfig
@@ -62,7 +66,7 @@ export function createInfrastructureAgent(
  */
 export async function startInfrastructureAgentService(
   port: number = 3001,
-  mode: 'http' | 'stdio' = 'http'
+  mode: 'http' | 'stdio' | 'websocket' = 'websocket'
 ): Promise<void> {
   const logger = pino({ name: 'infrastructure-agent-service' });
 
@@ -84,6 +88,19 @@ export async function startInfrastructureAgentService(
       process.on('SIGINT', async () => {
         logger.info('Shutting down Infrastructure Agent HTTP service...');
         await httpServer.stop();
+        process.exit(0);
+      });
+
+    } else if (mode === 'websocket') {
+      // Start simple WebSocket server for MCP over WebSocket + JSON-RPC
+      const standardAgent = new StandardInfrastructureAgent(agent, logger);
+      const wsServer = new SimpleWebSocketMCPServer(standardAgent, logger);
+      await wsServer.start(port);
+
+      // Graceful shutdown
+      process.on('SIGINT', async () => {
+        logger.info('Shutting down Infrastructure Agent WebSocket service...');
+        await wsServer.stop();
         process.exit(0);
       });
 
@@ -171,7 +188,7 @@ if (require.main === module) {
   if (args.length === 0) {
     // Start as service
     const port = parseInt(process.env.INFRASTRUCTURE_AGENT_PORT || process.env.PORT || '3003', 10);
-    const mode = (process.env.MCP_MODE as 'http' | 'stdio') || 'http';
+    const mode = (process.env.MCP_MODE as 'http' | 'stdio' | 'websocket') || 'websocket';
     startInfrastructureAgentService(port, mode);
   } else {
     // Run as CLI

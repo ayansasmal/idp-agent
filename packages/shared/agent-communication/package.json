@@ -1,0 +1,36 @@
+{
+  "name": "@ai-idp/agent-communication",
+  "version": "1.0.0",
+  "description": "Standardized WebSocket + JSON-RPC communication library for AI-IDP agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.17.1",
+    "vscode-jsonrpc": "^8.2.0",
+    "@ai-idp/types": "file:../types",
+    "@ai-idp/utils": "file:../utils",
+    "pino": "^8.19.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.6.2",
+    "vitest": "^1.6.0"
+  },
+  "keywords": [
+    "agent",
+    "communication", 
+    "websocket",
+    "jsonrpc",
+    "mcp"
+  ],
+  "author": "AI-IDP Team",
+  "license": "MIT"
+}

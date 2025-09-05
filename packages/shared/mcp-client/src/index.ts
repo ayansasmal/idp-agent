@@ -711,4 +711,6 @@ export class MCPAgentClient {
   }
 }
 
+export { SimpleWebSocketMCPClient } from './SimpleWebSocketMCPClient';
+
 export * from '@ai-idp/types';
