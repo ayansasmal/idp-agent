@@ -219,7 +219,7 @@ export class AgentCommunicationServer {
     const { connection, socket, id: clientId } = client;
 
     // Handle tools/list requests
-    connection.onRequest(StandardRequestTypes.ListTools, async () => {
+    connection.onRequest('tools/list', async () => {
       try {
         const capabilities = this.agent.getCapabilities();
 
@@ -242,7 +242,7 @@ export class AgentCommunicationServer {
     });
 
     // Handle tools/call requests
-    connection.onRequest(StandardRequestTypes.CallTool, async (params) => {
+    connection.onRequest('tools/call', async (params) => {
       const { name: toolName, arguments: args } = params;
 
       try {
@@ -311,7 +311,7 @@ export class AgentCommunicationServer {
     });
 
     // Handle health check requests
-    connection.onRequest(StandardRequestTypes.HealthCheck, async () => {
+    connection.onRequest('health/check', async () => {
       try {
         const health = await this.agent.healthCheck();
 
@@ -339,7 +339,7 @@ export class AgentCommunicationServer {
     });
 
     // Handle capabilities requests
-    connection.onRequest(StandardRequestTypes.GetCapabilities, async () => {
+    connection.onRequest('agent/capabilities', async () => {
       try {
         const capabilities = this.agent.getCapabilities();
         this.logger.debug({ clientId }, 'Sending agent capabilities');
@@ -388,18 +388,12 @@ export class AgentCommunicationServer {
       const capabilities = this.agent.getCapabilities();
 
       // Send MCP initialization notification
-      client.connection.sendNotification(StandardNotificationTypes.Initialized, {
+      client.connection.sendNotification('notifications/initialized', {
         protocolVersion: '2024-11-05',
         capabilities: {
           tools: {
             listChanged: true
           }
-        },
-        serverInfo: {
-          name: capabilities.name,
-          version: capabilities.version,
-          agentId: capabilities.agentId,
-          transport: 'agent-communication'
         }
       });
 

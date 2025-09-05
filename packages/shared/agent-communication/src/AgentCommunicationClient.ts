@@ -179,11 +179,13 @@ export class AgentCommunicationClient {
         registryEntry.capabilities = {
           agentId,
           name: agentId,
-          version: '1.0.0',
           description: `Agent ${agentId}`,
           tools: [],
           specializations: [],
-          endpoints: { mcp: wsUrl }
+          endpoints: { 
+            mcp: wsUrl,
+            health: wsUrl.replace('/mcp', '/health')
+          }
         };
       }
 
