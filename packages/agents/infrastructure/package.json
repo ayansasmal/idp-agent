@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-idp/action-manager": "file:../../shared/action-manager",
+    "@ai-idp/agent-communication": "file:../../shared/agent-communication",
     "@ai-idp/qdrant-client": "file:../../shared/qdrant-client",
     "@ai-idp/types": "file:../../shared/types",
     "@ai-idp/utils": "file:../../shared/utils",

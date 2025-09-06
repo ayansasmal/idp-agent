@@ -37,17 +37,28 @@ type ToolHandler = (
 export class StandardInfrastructureAgent implements AgentImplementation {
   private agent: InfrastructureAgent;
   private logger: Logger;
+  private port: number;
 
-  constructor(agent: InfrastructureAgent, logger: Logger) {
+  constructor(agent: InfrastructureAgent, logger: Logger, port?: number) {
     this.agent = agent;
     this.logger = logger.child({ component: 'StandardInfrastructureAgent' });
+    this.port = port || parseInt(process.env.INFRASTRUCTURE_AGENT_PORT || '3003', 10);
   }
 
   /**
    * Get agent capabilities
    */
   getCapabilities(): AgentCapabilities {
-    return this.agent.getCapabilities();
+    const capabilities = this.agent.getCapabilities();
+    
+    // Update endpoints to use WebSocket URLs with the actual port
+    return {
+      ...capabilities,
+      endpoints: {
+        mcp: `ws://localhost:${this.port}/mcp`,
+        health: `ws://localhost:${this.port}/health`
+      }
+    };
   }
 
   /**

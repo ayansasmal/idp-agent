@@ -3,6 +3,7 @@ import { InfrastructureMCPServer, InfrastructureHTTPServer } from './mcp/MCPServ
 import { WebSocketInfrastructureMCPServer } from './mcp/WebSocketMCPServer';
 import { StandardInfrastructureAgent } from './mcp/StandardInfrastructureAgent';
 import { SimpleWebSocketMCPServer } from './mcp/SimpleWebSocketMCPServer';
+import { AgentCommunicationServer } from '@ai-idp/agent-communication';
 import { KubernetesOperations } from './kubernetes/KubernetesOperations';
 import { CloudOperations } from './cloud/CloudOperations';
 import { pino, type Logger } from 'pino';
@@ -92,15 +93,19 @@ export async function startInfrastructureAgentService(
       });
 
     } else if (mode === 'websocket') {
-      // Start simple WebSocket server for MCP over WebSocket + JSON-RPC
-      const standardAgent = new StandardInfrastructureAgent(agent, logger);
-      const wsServer = new SimpleWebSocketMCPServer(standardAgent, logger);
-      await wsServer.start(port);
+      // Start standardized WebSocket server for MCP over WebSocket + JSON-RPC
+      const standardAgent = new StandardInfrastructureAgent(agent, logger, port);
+      const webSocketServer = new AgentCommunicationServer(standardAgent, {
+        heartbeatInterval: 30000,
+        healthCheckTimeout: 90000
+      });
+      await webSocketServer.start(port, '/mcp');
+      logger.info(`Infrastructure Agent service started successfully on port ${port}`);
 
       // Graceful shutdown
       process.on('SIGINT', async () => {
         logger.info('Shutting down Infrastructure Agent WebSocket service...');
-        await wsServer.stop();
+        await webSocketServer.stop();
         process.exit(0);
       });
 

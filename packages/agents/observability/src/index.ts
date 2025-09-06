@@ -1,5 +1,7 @@
 import { ObservabilityAgent, type ObservabilityAgentConfig } from './agent/ObservabilityAgent';
 import { ObservabilityMCPServer, ObservabilityHTTPServer } from './mcp/MCPServer';
+import { StandardObservabilityAgent } from './mcp/StandardObservabilityAgent';
+import { AgentCommunicationServer } from '@ai-idp/agent-communication';
 import { MonitoringOperations } from './monitoring/MonitoringOperations';
 import { IncidentManagement } from './incident/IncidentManagement';
 import { MetricsAnalysis } from './metrics/MetricsAnalysis';
@@ -100,31 +102,41 @@ export function createObservabilityAgent(
 }
 
 /**
- * Start Observability Agent as standalone service
+ * Start Observability Agent as standalone service with WebSocket + JSON-RPC
  */
-export async function startObservabilityAgentService(port: number = 3004): Promise<void> {
+export async function startObservabilityAgentService(port?: number): Promise<void> {
+  // Use the provided port or OBSERVABILITY_AGENT_PORT environment variable
+  const actualPort = port || parseInt(process.env.OBSERVABILITY_AGENT_PORT || '3006', 10);
   const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
     name: 'observability-agent-service'
   });
 
   try {
-    logger.info({ port }, 'Starting Observability Agent service');
+    logger.info({ port: actualPort, mode: 'websocket' }, 'Starting Observability Agent service');
 
     // Create and initialize Observability Agent
     const observabilityAgent = createObservabilityAgent();
     await observabilityAgent.initialize();
+    logger.info({}, 'Observability Agent initialized successfully');
 
-    // Create HTTP server
-    const httpServer = new ObservabilityHTTPServer(observabilityAgent, logger);
-    await httpServer.start(port);
+    // Create standardized agent adapter
+    const standardAgent = new StandardObservabilityAgent(observabilityAgent, logger, actualPort);
 
-    logger.info({}, `Observability Agent service started successfully on port ${port}`);
+    // Create WebSocket server using standardized communication
+    const webSocketServer = new AgentCommunicationServer(standardAgent, {
+      heartbeatInterval: 30000,
+      healthCheckTimeout: 90000
+    });
+
+    await webSocketServer.start(actualPort, '/mcp');
+
+    logger.info({}, `Observability Agent service started successfully on port ${actualPort}`);
 
     // Graceful shutdown
     process.on('SIGINT', async () => {
       logger.info({}, 'Shutting down Observability Agent service...');
-      await httpServer.stop();
+      await webSocketServer.stop();
       await observabilityAgent.cleanup();
       process.exit(0);
     });
@@ -137,6 +149,5 @@ export async function startObservabilityAgentService(port: number = 3004): Promi
 
 // Start service if this file is run directly
 if (require.main === module) {
-  const port = parseInt(process.env.OBSERVABILITY_AGENT_PORT || process.env.PORT || '3004', 10);
-  startObservabilityAgentService(port);
+  startObservabilityAgentService();
 }
