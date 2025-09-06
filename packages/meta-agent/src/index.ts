@@ -89,7 +89,7 @@ export function createMetaAgent(overrides?: Partial<MetaAgentConfig>): MetaAgent
 /**
  * Start Meta-Agent as standalone service
  */
-export async function startMetaAgentService(port: number = 3000): Promise<void> {
+export async function startMetaAgentService(port: number): Promise<void> {
   const logger = createLogger({
     service: 'meta-agent-service',
     level: 'info',
@@ -382,6 +382,21 @@ export async function startMetaAgentService(port: number = 3000): Promise<void> 
 
 // Start service if this file is run directly
 if (require.main === module) {
-  const port = parseInt(process.env.PORT || '3000', 10);
+  // ENFORCE environment variable usage - no fallback ports
+  if (!process.env.META_AGENT_PORT) {
+    console.error('❌ META_AGENT_PORT environment variable is required');
+    console.error('Please set META_AGENT_PORT in your .env file');
+    console.error('Example: META_AGENT_PORT=3000');
+    process.exit(1);
+  }
+
+  const port = parseInt(process.env.META_AGENT_PORT, 10);
+  if (isNaN(port) || port < 1 || port > 65535) {
+    console.error(`❌ Invalid META_AGENT_PORT: ${process.env.META_AGENT_PORT}`);
+    console.error('Port must be a number between 1 and 65535');
+    process.exit(1);
+  }
+
+  console.log(`🚀 Starting Meta-Agent on port ${port}`);
   startMetaAgentService(port);
 }

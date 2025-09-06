@@ -104,15 +104,28 @@ export function createObservabilityAgent(
 /**
  * Start Observability Agent as standalone service with WebSocket + JSON-RPC
  */
-export async function startObservabilityAgentService(port?: number): Promise<void> {
-  // Use the provided port or OBSERVABILITY_AGENT_PORT environment variable
-  const actualPort = port || parseInt(process.env.OBSERVABILITY_AGENT_PORT || '3006', 10);
+export async function startObservabilityAgentService(): Promise<void> {
+  // ENFORCE environment variable usage - no fallback ports
+  if (!process.env.OBSERVABILITY_AGENT_PORT) {
+    console.error('❌ OBSERVABILITY_AGENT_PORT environment variable is required');
+    console.error('Please set OBSERVABILITY_AGENT_PORT in your .env file');
+    console.error('Example: OBSERVABILITY_AGENT_PORT=3005');
+    process.exit(1);
+  }
+
+  const actualPort = parseInt(process.env.OBSERVABILITY_AGENT_PORT, 10);
+  if (isNaN(actualPort) || actualPort < 1 || actualPort > 65535) {
+    console.error(`❌ Invalid OBSERVABILITY_AGENT_PORT: ${process.env.OBSERVABILITY_AGENT_PORT}`);
+    console.error('Port must be a number between 1 and 65535');
+    process.exit(1);
+  }
   const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
     name: 'observability-agent-service'
   });
 
   try {
+    console.log(`🚀 Starting Observability Agent on port ${actualPort} (mode: websocket)`);
     logger.info({ port: actualPort, mode: 'websocket' }, 'Starting Observability Agent service');
 
     // Create and initialize Observability Agent

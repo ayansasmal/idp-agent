@@ -251,6 +251,12 @@ async function startAllServices() {
       cwd: path.join(__dirname, '../packages/agents/infrastructure')
     },
     {
+      name: 'observability-agent',
+      command: 'npm run dev',
+      port: process.env.OBSERVABILITY_AGENT_PORT || 3005,
+      cwd: path.join(__dirname, '../packages/agents/observability')
+    },
+    {
       name: 'meta-agent', 
       command: 'npm run dev',
       port: process.env.META_AGENT_PORT || 3000,

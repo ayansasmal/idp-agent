@@ -98,6 +98,38 @@ npm run test               # ✅ All tests
 npm run lint               # ✅ Code quality
 ```
 
+### **⚙️ ENVIRONMENT VARIABLE CONFIGURATION** (2025-09-06)
+
+**All agents now use centralized port configuration from `.env` file**
+
+- **✅ Centralized Port Management**: All services use environment variables from single `.env` file
+- **✅ Environment Variable Enforcement**: All agents require their PORT variables with clear error messages
+- **✅ Fixed .env Path Resolution**: Corrected path resolution in infrastructure agent (`../../../../.env`)
+- **✅ Added Missing Observability Agent**: Fixed process manager to include observability agent startup
+- **✅ Port Validation**: All agents validate port ranges (1-65535) with proper error handling
+
+**Environment Variables:**
+```bash
+META_AGENT_PORT=3000                    # 🧠 Meta-Agent orchestrator
+INFRASTRUCTURE_AGENT_PORT=3003         # ⚙️ Infrastructure operations  
+OBSERVABILITY_AGENT_PORT=3005          # 📊 Monitoring & observability
+WEB_PORT=3002                          # 🌐 Next.js web interface
+```
+
+**Agent Configuration:**
+- **Meta-Agent**: Strict `META_AGENT_PORT` requirement - no hardcoded fallbacks
+- **Infrastructure Agent**: Strict `INFRASTRUCTURE_AGENT_PORT` requirement + fixed .env path
+- **Observability Agent**: Strict `OBSERVABILITY_AGENT_PORT` requirement 
+- **Web App**: Uses `${WEB_PORT:-3002}` pattern in package.json
+- **Process Manager**: Added observability agent to services array
+
+**Benefits:**
+- ✅ Single source of truth for all port configurations
+- ✅ No hardcoded ports in source code
+- ✅ Clear error messages when environment variables missing
+- ✅ Easy port management for different environments
+- ✅ Consistent WebSocket + JSON-RPC 2.0 communication protocol
+
 ### **🎉 DISTRIBUTED ACTION TRACKING SYSTEM - COMPLETE**
 
 **All 6 phases successfully implemented with real-time UI and intelligent follow-ups!**

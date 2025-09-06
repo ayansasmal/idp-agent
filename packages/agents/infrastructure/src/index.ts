@@ -10,7 +10,7 @@ import { pino, type Logger } from 'pino';
 import dotenv from 'dotenv';
 
 // Load environment variables from root directory
-dotenv.config({ path: require('path').resolve(__dirname, '../../../.env') });
+dotenv.config({ path: require('path').resolve(__dirname, '../../../../.env') });
 
 // Export main components
 export {
@@ -191,9 +191,23 @@ if (require.main === module) {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    // Start as service
-    const port = parseInt(process.env.INFRASTRUCTURE_AGENT_PORT || process.env.PORT || '3003', 10);
+    // Start as service - ENFORCE environment variable usage
+    if (!process.env.INFRASTRUCTURE_AGENT_PORT) {
+      console.error('❌ INFRASTRUCTURE_AGENT_PORT environment variable is required');
+      console.error('Please set INFRASTRUCTURE_AGENT_PORT in your .env file');
+      console.error('Example: INFRASTRUCTURE_AGENT_PORT=3003');
+      process.exit(1);
+    }
+
+    const port = parseInt(process.env.INFRASTRUCTURE_AGENT_PORT, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      console.error(`❌ Invalid INFRASTRUCTURE_AGENT_PORT: ${process.env.INFRASTRUCTURE_AGENT_PORT}`);
+      console.error('Port must be a number between 1 and 65535');
+      process.exit(1);
+    }
+
     const mode = (process.env.MCP_MODE as 'http' | 'stdio' | 'websocket') || 'websocket';
+    console.log(`🚀 Starting Infrastructure Agent on port ${port} (mode: ${mode})`);
     startInfrastructureAgentService(port, mode);
   } else {
     // Run as CLI
