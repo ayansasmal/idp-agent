@@ -5,6 +5,8 @@ import {
   NotificationType,
   MessageConnection
 } from 'vscode-jsonrpc';
+import { StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
+import { PassThrough } from 'stream';
 import {
   createLogger,
   withRetry,
@@ -233,8 +235,29 @@ export class AgentCommunicationClient {
           clearTimeout(connectionTimeout);
 
           try {
-            // Create JSON-RPC connection  
-            const connection = createMessageConnection(socket as any, socket as any);
+            // Create stream adapters for WebSocket to work with vscode-jsonrpc
+            const reader = new PassThrough({ objectMode: false });
+            const writer = new PassThrough({ objectMode: false });
+            
+            // Bridge WebSocket messages to streams
+            socket.on('message', (data) => {
+              reader.write(data);
+            });
+            
+            writer.on('data', (data) => {
+              socket.send(data);
+            });
+            
+            // Handle close events
+            socket.on('close', () => {
+              reader.end();
+              writer.end();
+            });
+
+            // Create JSON-RPC connection with proper stream message handlers
+            const messageReader = new StreamMessageReader(reader);
+            const messageWriter = new StreamMessageWriter(writer);
+            const connection = createMessageConnection(messageReader, messageWriter);
 
             connection.listen();
 

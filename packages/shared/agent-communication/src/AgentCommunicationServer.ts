@@ -1,8 +1,10 @@
 import WebSocket, { WebSocketServer } from 'ws';
+import { PassThrough } from 'stream';
 import {
   createMessageConnection,
   MessageConnection
 } from 'vscode-jsonrpc';
+import { StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
 import {
   createLogger,
   ServiceError,
@@ -169,8 +171,35 @@ export class AgentCommunicationServer {
         remoteAddress: request.socket.remoteAddress
       }, 'New client connected');
 
-      // Create JSON-RPC connection
-      const connection = createMessageConnection(socket as any, socket as any);
+      this.logger.debug({ clientId }, 'Creating JSON-RPC connection');
+      
+      // Create stream adapters for WebSocket compatibility with vscode-jsonrpc
+      const reader = new PassThrough({ objectMode: false });
+      const writer = new PassThrough({ objectMode: false });
+      
+      // Bridge WebSocket messages to streams
+      socket.on('message', (data) => {
+        reader.write(data);
+      });
+      
+      writer.on('data', (data) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(data);
+        }
+      });
+      
+      // Handle WebSocket closure
+      socket.on('close', () => {
+        reader.end();
+        writer.end();
+      });
+      
+      // Create JSON-RPC connection using stream adapters
+      const messageReader = new StreamMessageReader(reader);
+      const messageWriter = new StreamMessageWriter(writer);
+      const connection = createMessageConnection(messageReader, messageWriter);
+      
+      this.logger.debug({ clientId }, 'JSON-RPC connection created with WebSocket stream adapters');
 
       // Create client record
       const client: ConnectedClient = {
@@ -185,15 +214,19 @@ export class AgentCommunicationServer {
         }
       };
 
+      this.logger.debug({ clientId }, 'Client record created, registering client');
       // Register client
       this.clients.set(clientId, client);
 
+      this.logger.debug({ clientId }, 'Setting up client handlers');
       // Setup handlers
       this.setupClientHandlers(client);
 
+      this.logger.debug({ clientId }, 'Starting JSON-RPC listener');
       // Start listening for messages
       connection.listen();
 
+      this.logger.debug({ clientId }, 'Sending server initialization');
       // Send server initialization
       this.sendServerInitialization(client);
 
@@ -205,7 +238,11 @@ export class AgentCommunicationServer {
     } catch (error) {
       this.logger.error({
         clientId,
-        error
+        error: error instanceof Error ? {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        } : error
       }, 'Failed to setup new client');
       socket.close();
     }
@@ -385,7 +422,14 @@ export class AgentCommunicationServer {
    */
   private sendServerInitialization(client: ConnectedClient): void {
     try {
+      this.logger.debug({ clientId: client.id }, 'Getting agent capabilities for initialization');
       const capabilities = this.agent.getCapabilities();
+      
+      this.logger.debug({ 
+        clientId: client.id, 
+        capabilitiesKeys: Object.keys(capabilities),
+        toolsCount: capabilities.tools?.length || 0
+      }, 'Retrieved agent capabilities');
 
       // Send MCP initialization notification
       client.connection.sendNotification('notifications/initialized', {
@@ -401,8 +445,13 @@ export class AgentCommunicationServer {
     } catch (error) {
       this.logger.error({
         clientId: client.id,
-        error
+        error: error instanceof Error ? {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        } : error
       }, 'Failed to send server initialization');
+      throw error; // Re-throw to trigger the outer catch block
     }
   }
 

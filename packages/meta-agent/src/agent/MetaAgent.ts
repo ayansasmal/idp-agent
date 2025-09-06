@@ -11,7 +11,7 @@ import {
 } from '@ai-idp/utils';
 import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
-import { MCPAgentClient } from '@ai-idp/mcp-client';
+import { AgentCommunicationClient } from '@ai-idp/agent-communication';
 import { ActionManager, type ActionManagerConfig } from '@ai-idp/action-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type {
@@ -149,7 +149,7 @@ export class MetaAgent {
   private anthropic?: Anthropic;
   private openai?: OpenAI;
   private qdrantClient: QdrantContextClient;
-  private mcpClient: MCPAgentClient;
+  private agentClient: AgentCommunicationClient;
   private intentClassifier: IntentClassifier;
   private contextManager: ContextManager;
   private responseCoordinator: ResponseCoordinator;
@@ -203,8 +203,8 @@ export class MetaAgent {
       this.logger
     );
 
-    this.mcpClient = new MCPAgentClient(this.config.mcp, {
-      service: 'meta-agent-mcp',
+    this.agentClient = new AgentCommunicationClient(this.config.mcp, {
+      service: 'meta-agent-client',
       level: 'info',
       environment: (process.env.NODE_ENV as any) || 'development'
     });
@@ -382,7 +382,7 @@ export class MetaAgent {
    *   ],
    *   specializations: ["kubernetes", "deployment", "scaling"],
    *   endpoints: {
-   *     mcp: "http://localhost:3003/mcp",
+   *     mcp: "ws://localhost:3003/mcp",
    *     health: "http://localhost:3003/health"
    *   }
    * };
@@ -398,7 +398,7 @@ export class MetaAgent {
    *   tools: [{ name: "getMetrics", description: "Retrieve system metrics" }],
    *   specializations: ["monitoring", "alerts"],
    *   endpoints: {
-   *     mcp: "http://localhost:4000/mcp",
+   *     mcp: "ws://localhost:4000/mcp",
    *     health: "http://localhost:4000/health"
    *   }
    * };
@@ -417,21 +417,16 @@ export class MetaAgent {
         specializations: capabilities.specializations
       }, `Registering focused agent: ${capabilities.agentId}`);
 
-      // Validate agent endpoints before registration
-      this.logger.info({ healthEndpoint: capabilities.endpoints.health }, 'Validating agent endpoints');
+      // Validate agent endpoints before registration using WebSocket
+      this.logger.info({ mcpEndpoint: capabilities.endpoints.mcp }, 'Validating agent endpoints via WebSocket');
       
       try {
-        const healthResponse = await fetch(capabilities.endpoints.health, { 
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(5000) // 5 second timeout
-        });
-        
-        if (!healthResponse.ok) {
-          throw new Error(`Health endpoint returned ${healthResponse.status}: ${healthResponse.statusText}`);
+        const healthResult = await this.validateAgentHealthViaWebSocket(capabilities.endpoints.mcp);
+        if (!healthResult.healthy) {
+          throw new Error(`Agent health check failed: ${healthResult.error || 'Unknown error'}`);
         }
         
-        this.logger.info({ agentId: capabilities.agentId }, 'Agent health endpoint validated successfully');
+        this.logger.info({ agentId: capabilities.agentId }, 'Agent WebSocket health endpoint validated successfully');
       } catch (error: any) {
         throw new Error(`Agent endpoint validation failed: ${error.message}`);
       }
@@ -447,7 +442,7 @@ export class MetaAgent {
         });
         
         await Promise.race([
-          this.mcpClient.registerAgent(capabilities),
+          this.agentClient.connect(capabilities.agentId, capabilities.endpoints.mcp),
           mcpTimeout
         ]);
         
@@ -585,8 +580,8 @@ export class MetaAgent {
           'container-orchestration'
         ],
         endpoints: {
-          mcp: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
-          health: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/health`
+          mcp: `ws://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
+          health: `ws://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`
         }
       };
 
@@ -695,8 +690,8 @@ export class MetaAgent {
           'root-cause-analysis'
         ],
         endpoints: {
-          mcp: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`,
-          health: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/health`
+          mcp: `ws://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`,
+          health: `ws://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`
         }
       };
 
@@ -1111,7 +1106,7 @@ export class MetaAgent {
     let mcpResponse: MCPResponse;
     
     try {
-      mcpResponse = await this.mcpClient.callTool(
+      mcpResponse = await this.agentClient.callTool(
         intent.agent,
         tool.name,
         parametersWithContext,
@@ -1246,7 +1241,7 @@ export class MetaAgent {
         }
 
         // Execute step
-        const mcpResponse = await this.mcpClient.callTool(
+        const mcpResponse = await this.agentClient.callTool(
           step.agent,
           step.action,
           step.parameters,
@@ -1394,7 +1389,19 @@ export class MetaAgent {
    * @version 1.1.0 - Added Qdrant and MCP health details
    */
   async getAgentStatus(): Promise<Record<string, any>> {
-    const healthStatus = await this.mcpClient.healthCheckAll();
+    // Check health for all connected agents
+    const connectedAgents = this.agentClient.getConnectedAgents();
+    const healthStatus: Record<string, boolean> = {};
+    
+    for (const agentId of connectedAgents) {
+      try {
+        const health = await this.agentClient.healthCheck(agentId);
+        healthStatus[agentId] = health.healthy;
+      } catch (error) {
+        healthStatus[agentId] = false;
+      }
+    }
+    
     const registeredAgents = Array.from(this.registeredAgents.values());
 
     return {
@@ -1613,13 +1620,44 @@ export class MetaAgent {
   }
 
   /**
+   * Validate agent health via WebSocket connection
+   */
+  private async validateAgentHealthViaWebSocket(mcpEndpoint: string): Promise<{ healthy: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      try {
+        const WebSocket = require('ws');
+        const ws = new WebSocket(mcpEndpoint);
+        
+        const timeout = setTimeout(() => {
+          ws.terminate();
+          resolve({ healthy: false, error: 'WebSocket connection timeout' });
+        }, 5000);
+
+        ws.on('open', () => {
+          clearTimeout(timeout);
+          ws.close();
+          resolve({ healthy: true });
+        });
+
+        ws.on('error', (error: Error) => {
+          clearTimeout(timeout);
+          resolve({ healthy: false, error: error.message });
+        });
+
+      } catch (error: any) {
+        resolve({ healthy: false, error: error.message });
+      }
+    });
+  }
+
+  /**
    * Cleanup resources
    */
   async cleanup(): Promise<void> {
     this.logger.info({}, 'Cleaning up Meta-Agent resources');
 
     try {
-      await this.mcpClient.cleanup();
+      await this.agentClient.cleanup();
       this.logger.info({}, 'Meta-Agent cleanup completed');
     } catch (error: any) {
       this.logger.error(error, 'Meta-Agent cleanup failed');

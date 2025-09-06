@@ -1,12 +1,74 @@
 # AI-IDP Communication Flow Analysis
 
-## **UPDATED**: Complete Distributed Action Tracking System
-**Last Updated**: 2025-01-30  
-**Status**: Production-ready with real-time WebSocket communication
+## **UPDATED**: WebSocket + JSON-RPC Protocol Migration Complete
+**Last Updated**: 2025-09-06  
+**Status**: Production-ready with standardized WebSocket + JSON-RPC 2.0 communication
 
 ---
 
-## 1. Service Startup and Registration Flow
+## **✅ PROTOCOL MIGRATION COMPLETE: MCP → WebSocket + JSON-RPC**
+
+**Previous Issues (RESOLVED)**:
+- ❌ MCP-over-HTTP/SSE caused protocol mismatches
+- ❌ Agent registration failures due to stream incompatibilities
+- ❌ "messageReader.onClose is not a function" errors
+
+**Current Implementation**:
+- ✅ **Pure WebSocket + JSON-RPC 2.0** communication protocol
+- ✅ **Stream compatibility layer** with PassThrough adapters
+- ✅ **Bidirectional real-time** agent communication
+- ✅ **Successful agent registration** and health checks
+
+---
+
+## 1. Service Startup and Registration Flow (UPDATED)
+
+```mermaid
+sequenceDiagram
+    participant PM as Process Manager
+    participant IA as Infrastructure Agent
+    participant OA as Observability Agent
+    participant MA as Meta Agent
+
+    Note over PM: npm run dev (process-manager.js start)
+    
+    PM->>IA: Start Infrastructure Agent (port 3003)
+    IA->>IA: Initialize AgentCommunicationServer
+    IA->>IA: Start WebSocket server (/mcp)
+    Note over IA: ✅ Infrastructure Agent Ready (WebSocket + JSON-RPC)
+
+    PM->>OA: Start Observability Agent (port 3005)  
+    OA->>OA: Initialize AgentCommunicationServer
+    OA->>OA: Start WebSocket server (/mcp)
+    Note over OA: ✅ Observability Agent Ready (WebSocket + JSON-RPC)
+
+    PM->>MA: Start Meta Agent (port 3000)
+    MA->>MA: Initialize AgentCommunicationClient instances
+    
+    Note over MA,IA: 🔄 WebSocket + JSON-RPC Registration (SUCCESS)
+    
+    MA->>IA: WebSocket connection (ws://localhost:3003/mcp)
+    IA-->>MA: WebSocket connection established
+    MA->>IA: JSON-RPC health/check request
+    IA-->>MA: JSON-RPC health response (healthy: true)
+    MA->>IA: JSON-RPC tools/list request
+    IA-->>MA: JSON-RPC tools list (5 tools)
+    Note over MA: ✅ Infrastructure Agent Registered Successfully
+    
+    Note over MA,OA: 🔄 WebSocket + JSON-RPC Registration (SUCCESS)
+    
+    MA->>OA: WebSocket connection (ws://localhost:3005/mcp)
+    OA-->>MA: WebSocket connection established  
+    MA->>OA: JSON-RPC health/check request
+    OA-->>MA: JSON-RPC health response (healthy: true)
+    MA->>OA: JSON-RPC tools/list request
+    OA-->>MA: JSON-RPC tools list (5 tools)
+    Note over MA: ✅ Observability Agent Registered Successfully
+    
+    Note over MA: ✅ ALL AGENTS REGISTERED - totalAgents: 2
+```
+
+## 1. Service Startup and Registration Flow (LEGACY - RESOLVED ISSUES)
 
 ```mermaid
 sequenceDiagram
