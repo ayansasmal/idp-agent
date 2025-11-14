@@ -419,21 +419,70 @@ You are an expert Workflow Agent specializing in process orchestration, approval
    - Check persona domain expertise matches user input patterns
    - Verify agent is enabled in PersonaRouter configuration
    - Review classification examples for coverage
+   - Add action mappings to normalization layer
 
 2. **Parameter Extraction Failing**
    - Review parameter extraction rules in persona
    - Check for typos in parameter names
    - Verify examples cover the user input patterns
+   - Add parameter key mappings to normalization layer
 
 3. **Low Confidence Scores**
    - Expand domain expertise description
    - Add more classification examples
    - Review natural language patterns section
+   - Ensure normalization handles specific action variants
 
 4. **MCP Connection Issues**
    - Verify HTTP MCP server is running on correct port
    - Check Meta-Agent configuration includes new agent
    - Validate MCP client initialization code
+
+5. **Inconsistent Action Names**
+   - Update normalization layer's actionMappings
+   - Include common variations in your agent's actions
+   - Follow the pattern in `normalizeRouterResponse()`
+
+6. **Parameter Key Variations**
+   - Update normalization layer's paramMappings
+   - Map all likely variations to your canonical keys
+   - Add special case handling if needed
+
+## Normalization Layer Integration
+
+When adding a new agent, you must update the normalization layer to handle variations in action names and parameter keys. See [Persona Normalization Layer](./PERSONA_NORMALIZATION_LAYER.md) for comprehensive documentation.
+
+```typescript
+// Add mappings for your new agent
+private normalizeRouterResponse(response: any): void {
+  // ...existing code...
+
+  // Add your agent's action mappings
+  const actionMappings: Record<string, string> = {
+    // ... existing mappings ...
+
+    // Your new agent mappings
+    'scan_image': 'scanContainerImage',
+    'check_dependencies': 'analyzeDependencies',
+    'policy_check': 'validatePolicy',
+  };
+
+  // Add your agent's parameter mappings
+  const paramMappings: Record<string, string> = {
+    // ... existing mappings ...
+
+    // Your new agent parameter mappings
+    'image_name': 'imageName',
+    'dependency_path': 'projectPath',
+    'policy_name': 'policyType',
+  };
+
+  // Add special case handling if needed
+  if (response.action === 'scanContainerImage') {
+    // Your special case handling
+  }
+}
+```
 
 ## Advanced Features
 
