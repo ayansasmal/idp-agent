@@ -7,7 +7,8 @@ set -e
 
 # Load environment variables
 if [ -f .env ]; then
-  export $(cat .env | grep -v '^#' | xargs)
+  # Remove lines starting with # and remove inline comments after variables
+  export $(cat .env | grep -v '^#' | sed 's/#.*//' | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | xargs)
 fi
 
 # Configuration

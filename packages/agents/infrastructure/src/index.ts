@@ -1,9 +1,7 @@
 import { InfrastructureAgent, type InfrastructureAgentConfig } from './agent/InfrastructureAgent';
 import { InfrastructureMCPServer, InfrastructureHTTPServer } from './mcp/MCPServer';
 import { WebSocketInfrastructureMCPServer } from './mcp/WebSocketMCPServer';
-import { StandardInfrastructureAgent } from './mcp/StandardInfrastructureAgent';
-import { SimpleWebSocketMCPServer } from './mcp/SimpleWebSocketMCPServer';
-import { AgentCommunicationServer } from '@ai-idp/agent-communication';
+import { HTTPMCPServer } from './mcp/HTTPMCPServer';
 import { KubernetesOperations } from './kubernetes/KubernetesOperations';
 import { CloudOperations } from './cloud/CloudOperations';
 import { pino, type Logger } from 'pino';
@@ -18,6 +16,7 @@ export {
   InfrastructureMCPServer,
   InfrastructureHTTPServer,
   WebSocketInfrastructureMCPServer,
+  HTTPMCPServer,
   KubernetesOperations,
   CloudOperations,
   type InfrastructureAgentConfig
@@ -64,15 +63,16 @@ export function createInfrastructureAgent(
 
 /**
  * Start Infrastructure Agent as standalone service
+ *
+ * Only supports HTTP MCP mode since this is our single, focused implementation
  */
 export async function startInfrastructureAgentService(
-  port: number = 3001,
-  mode: 'http' | 'stdio' | 'websocket' = 'websocket'
+  port: number = 3003
 ): Promise<void> {
   const logger = pino({ name: 'infrastructure-agent-service' });
 
   try {
-    logger.info({ port, mode }, 'Starting Infrastructure Agent service');
+    logger.info({ port }, 'Starting Infrastructure Agent HTTP MCP service');
 
     // Create and initialize agent
     const agent = createInfrastructureAgent();
@@ -80,47 +80,22 @@ export async function startInfrastructureAgentService(
 
     logger.info('Infrastructure Agent initialized successfully');
 
-    if (mode === 'http') {
-      // Start HTTP server for MCP over HTTP
-      const httpServer = new InfrastructureHTTPServer(agent, logger);
-      await httpServer.start(port);
+    // Start HTTP MCP server with enhanced tool handlers (assume-and-confirm framework)
+    const httpMcpServer = new HTTPMCPServer({
+      port,
+      infraAgentConfig: {
+        agentId: 'infrastructure',
+        name: 'Infrastructure Agent'
+      }
+    });
+    await httpMcpServer.start();
 
-      // Graceful shutdown
-      process.on('SIGINT', async () => {
-        logger.info('Shutting down Infrastructure Agent HTTP service...');
-        await httpServer.stop();
-        process.exit(0);
-      });
-
-    } else if (mode === 'websocket') {
-      // Start standardized WebSocket server for MCP over WebSocket + JSON-RPC
-      const standardAgent = new StandardInfrastructureAgent(agent, logger, port);
-      const webSocketServer = new AgentCommunicationServer(standardAgent, {
-        heartbeatInterval: 30000,
-        healthCheckTimeout: 90000
-      });
-      await webSocketServer.start(port, '/mcp');
-      logger.info(`Infrastructure Agent service started successfully on port ${port}`);
-
-      // Graceful shutdown
-      process.on('SIGINT', async () => {
-        logger.info('Shutting down Infrastructure Agent WebSocket service...');
-        await webSocketServer.stop();
-        process.exit(0);
-      });
-
-    } else {
-      // Start stdio MCP server
-      const mcpServer = new InfrastructureMCPServer(agent, logger);
-      await mcpServer.start();
-
-      // Graceful shutdown
-      process.on('SIGINT', async () => {
-        logger.info('Shutting down Infrastructure Agent MCP service...');
-        await mcpServer.stop();
-        process.exit(0);
-      });
-    }
+    // Graceful shutdown
+    process.on('SIGINT', async () => {
+      logger.info('Shutting down Infrastructure Agent HTTP MCP service...');
+      await httpMcpServer.stop();
+      process.exit(0);
+    });
 
   } catch (error) {
     logger.error(error, 'Failed to start Infrastructure Agent service');
@@ -206,9 +181,8 @@ if (require.main === module) {
       process.exit(1);
     }
 
-    const mode = (process.env.MCP_MODE as 'http' | 'stdio' | 'websocket') || 'websocket';
-    console.log(`🚀 Starting Infrastructure Agent on port ${port} (mode: ${mode})`);
-    startInfrastructureAgentService(port, mode);
+    console.log(`🚀 Starting Infrastructure Agent HTTP MCP Server on port ${port}`);
+    startInfrastructureAgentService(port);
   } else {
     // Run as CLI
     const operation = args[0];

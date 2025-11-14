@@ -3,8 +3,6 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    
-    // Very lenient settings - focus only on critical build-breaking errors
     "strict": false,
     "noImplicitAny": false,
     "strictNullChecks": false,
@@ -14,16 +12,12 @@
     "noImplicitReturns": false,
     "noImplicitThis": false,
     "alwaysStrict": false,
-    
-    // Disable all optional checks
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
     "noImplicitOverride": false,
     "noPropertyAccessFromIndexSignature": false,
     "noUncheckedIndexedAccess": false,
-    
-    // Essential for functionality
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -38,22 +32,14 @@
     "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
+      "@ai-idp/api": ["./packages/api-server/src"],
+      "@ai-idp/cli": ["./packages/cli/src"],
       "@ai-idp/core": ["./packages/core/src"],
       "@ai-idp/core/*": ["./packages/core/src/*"],
-      "@ai-idp/web": ["./packages/web-interface/src"],
       "@ai-idp/slack": ["./packages/slack-app/src"],
-      "@ai-idp/cli": ["./packages/cli/src"],
-      "@ai-idp/api": ["./packages/api-server/src"]
+      "@ai-idp/web": ["./packages/web-interface/src"]
     }
   },
-  "include": [
-    "packages/*/src/**/*",
-    "tools/*/src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "**/*.test.ts",
-    "**/*.spec.ts"
-  ]
+  "include": ["packages/*/src/**/*", "tools/*/src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
 }

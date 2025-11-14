@@ -16,11 +16,10 @@ import type {
   ToolDefinition,
   ConversationContext
 } from '@ai-idp/types';
+import { z } from 'zod';
 import {
   AgentCommunicationConfig,
-  DEFAULT_AGENT_COMMUNICATION_CONFIG,
-  StandardRequestTypes,
-  StandardNotificationTypes
+  DEFAULT_AGENT_COMMUNICATION_CONFIG
 } from './AgentCommunicationClient';
 
 /**
@@ -30,6 +29,77 @@ export type ToolHandler = (
   parameters: Record<string, any>,
   context?: ConversationContext
 ) => Promise<any>;
+
+/**
+ * Smart defaults generator function signature
+ */
+export type DefaultsGenerator = (
+  providedArgs: Record<string, any>,
+  context?: ConversationContext
+) => Record<string, any> | Promise<Record<string, any>>;
+
+/**
+ * Tool call response for pending confirmation
+ */
+export interface PendingConfirmationResponse {
+  status: 'pending_confirmation';
+  toolName: string;
+  assumptions: Record<string, any>;
+  message: string;
+  confirmationPrompt: string;
+  validationErrors?: string[];
+}
+
+/**
+ * Tool call response for successful execution
+ */
+export interface SuccessfulToolResponse {
+  status: 'success';
+  result: any;
+  executionTime: number;
+  toolName: string;
+}
+
+/**
+ * Tool call response for errors
+ */
+export interface ErrorToolResponse {
+  status: 'error';
+  message: string;
+  error: any;
+  toolName: string;
+}
+
+/**
+ * Union type for all possible tool call responses
+ */
+export type ToolCallResponse = PendingConfirmationResponse | SuccessfulToolResponse | ErrorToolResponse;
+
+/**
+ * Custom confirmation message generator function signature
+ */
+export type ConfirmationMessageGenerator = (
+  toolName: string,
+  assumptions: Record<string, any>
+) => string;
+
+/**
+ * Enhanced tool handler with parameter validation and smart defaults
+ */
+export interface EnhancedToolHandler {
+  /** Original tool handler function */
+  handler: ToolHandler;
+  /** Zod schema for parameter validation */
+  schema: z.ZodSchema;
+  /** Smart defaults generator function */
+  defaultsGenerator?: DefaultsGenerator;
+  /** Whether confirmation is required for this tool */
+  requiresConfirmation?: boolean;
+  /** Human-readable description for confirmation prompts */
+  description?: string;
+  /** Custom confirmation message generator (optional) */
+  confirmationMessageGenerator?: ConfirmationMessageGenerator;
+}
 
 /**
  * Agent implementation interface for standardized communication server
@@ -43,6 +113,9 @@ export interface AgentImplementation {
 
   /** Tool handlers mapped by tool name */
   getToolHandlers(): Record<string, ToolHandler>;
+
+  /** Enhanced tool handlers with validation and smart defaults (optional) */
+  getEnhancedToolHandlers?(): Record<string, EnhancedToolHandler>;
 }
 
 /**
@@ -107,6 +180,7 @@ export class AgentCommunicationServer {
   private logger: Logger;
   private clients: Map<string, ConnectedClient> = new Map();
   private toolHandlers: Record<string, ToolHandler>;
+  private enhancedToolHandlers: Record<string, EnhancedToolHandler>;
 
   constructor(
     agent: AgentImplementation,
@@ -116,6 +190,9 @@ export class AgentCommunicationServer {
     this.agent = agent;
     this.config = { ...DEFAULT_AGENT_COMMUNICATION_CONFIG, ...config };
     this.toolHandlers = agent.getToolHandlers();
+
+    // Initialize enhanced tool handlers if available
+    this.enhancedToolHandlers = agent.getEnhancedToolHandlers?.() || {};
 
     this.logger = createLogger({
       service: 'agent-communication-server',
@@ -249,6 +326,155 @@ export class AgentCommunicationServer {
   }
 
   /**
+   * Process tool call with parameter validation and smart defaults
+   * @private
+   */
+  private async processToolCall(
+    toolName: string,
+    args: Record<string, any>,
+    context: ConversationContext,
+    clientId: string
+  ): Promise<ToolCallResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Check if enhanced tool handler exists
+      const enhancedHandler = this.enhancedToolHandlers[toolName];
+
+      if (enhancedHandler) {
+        // Use enhanced handler with validation and smart defaults
+        return await this.processEnhancedToolCall(enhancedHandler, toolName, args, context, clientId);
+      } else {
+        // Fall back to legacy handler
+        const handler = this.toolHandlers[toolName];
+        if (!handler) {
+          return {
+            status: 'error',
+            message: `Unknown tool: ${toolName}`,
+            error: { code: 'TOOL_NOT_FOUND', toolName },
+            toolName
+          };
+        }
+
+        const result = await handler(args, context);
+        const executionTime = Date.now() - startTime;
+
+        return {
+          status: 'success',
+          result,
+          executionTime,
+          toolName
+        };
+      }
+    } catch (error: any) {
+      return {
+        status: 'error',
+        message: `Tool call failed: ${error.message}`,
+        error,
+        toolName
+      };
+    }
+  }
+
+  /**
+   * Process enhanced tool call with validation and confirmation
+   * @private
+   */
+  private async processEnhancedToolCall(
+    enhancedHandler: EnhancedToolHandler,
+    toolName: string,
+    args: Record<string, any>,
+    context: ConversationContext,
+    clientId: string
+  ): Promise<ToolCallResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Step 1: Validate provided parameters
+      const validation = enhancedHandler.schema.safeParse(args);
+
+      if (!validation.success) {
+        // Step 2: Apply smart defaults for missing/invalid parameters
+        let assumedArgs = { ...args };
+
+        if (enhancedHandler.defaultsGenerator) {
+          const generatedDefaults = await enhancedHandler.defaultsGenerator(args, context);
+          assumedArgs = { ...assumedArgs, ...generatedDefaults };
+        }
+
+        // Step 3: Re-validate with defaults applied
+        const revalidation = enhancedHandler.schema.safeParse(assumedArgs);
+
+        if (!revalidation.success || enhancedHandler.requiresConfirmation) {
+          // Step 4: Return confirmation request
+          const validationErrors = validation.success ? [] : validation.error.errors.map(err =>
+            `${err.path.join('.')}: ${err.message}`
+          );
+
+          // Generate custom confirmation message
+          let confirmationMessage = `Ready to execute ${enhancedHandler.description || toolName} with these settings:`;
+
+          if (enhancedHandler.confirmationMessageGenerator) {
+            try {
+              confirmationMessage = enhancedHandler.confirmationMessageGenerator(toolName, assumedArgs);
+            } catch (error) {
+              // Fallback to default message if custom generator fails
+              this.logger.warn({ error }, 'Failed to generate custom confirmation message');
+            }
+          }
+
+          return {
+            status: 'pending_confirmation',
+            toolName,
+            assumptions: assumedArgs,
+            message: confirmationMessage,
+            confirmationPrompt: 'Proceed with these settings? (y/n) or specify changes:',
+            validationErrors: validationErrors.length > 0 ? validationErrors : undefined
+          };
+        }
+
+        // Use validated arguments with defaults
+        args = revalidation.data;
+      } else {
+        // Use provided arguments (already valid)
+        args = validation.data;
+      }
+
+      // Step 5: Execute tool with validated parameters
+      const result = await enhancedHandler.handler(args, context);
+      const executionTime = Date.now() - startTime;
+
+      this.logger.info({
+        clientId,
+        toolName,
+        executionTime,
+        success: true
+      }, 'Enhanced tool call completed successfully');
+
+      return {
+        status: 'success',
+        result,
+        executionTime,
+        toolName
+      };
+
+    } catch (error: any) {
+      this.logger.error({
+        clientId,
+        toolName,
+        error
+      }, 'Enhanced tool call failed');
+
+      return {
+        status: 'error',
+        message: `Tool call failed: ${error.message}`,
+        error,
+        toolName
+      };
+    }
+  }
+
+  /**
    * Setup JSON-RPC handlers for a client
    * @private
    */
@@ -289,16 +515,6 @@ export class AgentCommunicationServer {
           args: Object.keys(args || {})
         }, 'Received tool call');
 
-        // Find tool handler
-        const handler = this.toolHandlers[toolName];
-        if (!handler) {
-          throw new ServiceError(
-            `Unknown tool: ${toolName}`,
-            ErrorCode.NOT_FOUND,
-            { service: 'agent-communication-server', operation: 'callTool' }
-          );
-        }
-
         // Create context if not provided
         const context: ConversationContext = args?.context || {
           conversationId: `server-${clientId}-${Date.now()}`,
@@ -312,19 +528,32 @@ export class AgentCommunicationServer {
           }
         };
 
-        // Execute tool
-        const startTime = Date.now();
-        const result = await handler(args, context);
-        const executionTime = Date.now() - startTime;
+        // Use new parameter validation pipeline
+        const response = await this.processToolCall(toolName, args, context, clientId);
 
-        this.logger.info({
-          clientId,
-          toolName,
-          executionTime,
-          success: !!result
-        }, 'Tool call completed');
-
-        return result;
+        // Convert ToolCallResponse to legacy format for backward compatibility
+        if (response.status === 'success') {
+          return response.result;
+        } else if (response.status === 'pending_confirmation') {
+          // Return confirmation request
+          return {
+            success: false,
+            status: 'pending_confirmation',
+            message: response.message,
+            assumptions: response.assumptions,
+            confirmationPrompt: response.confirmationPrompt,
+            validationErrors: response.validationErrors,
+            toolName: response.toolName
+          };
+        } else {
+          // Return error
+          return {
+            success: false,
+            message: response.message,
+            error: response.error,
+            toolName: response.toolName
+          };
+        }
 
       } catch (error: any) {
         this.logger.error({
@@ -388,7 +617,7 @@ export class AgentCommunicationServer {
     });
 
     // Handle heartbeat notifications
-    connection.onNotification(StandardNotificationTypes.Heartbeat, (params) => {
+    connection.onNotification('heartbeat', (params: { timestamp: number }) => {
       client.lastHeartbeat = new Date();
       this.logger.debug({
         clientId,
@@ -491,7 +720,7 @@ export class AgentCommunicationServer {
               client.socket.ping();
 
               // Send JSON-RPC heartbeat notification
-              client.connection.sendNotification(StandardNotificationTypes.Heartbeat, {
+              client.connection.sendNotification('heartbeat', {
                 timestamp: Date.now()
               });
 

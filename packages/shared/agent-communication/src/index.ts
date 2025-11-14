@@ -10,14 +10,23 @@
 
 // Export main classes
 export { AgentCommunicationClient } from './AgentCommunicationClient';
-export { AgentCommunicationServer, type AgentImplementation, type ToolHandler } from './AgentCommunicationServer';
+export {
+  AgentCommunicationServer,
+  type AgentImplementation,
+  type ToolHandler,
+  type EnhancedToolHandler,
+  type DefaultsGenerator,
+  type ConfirmationMessageGenerator,
+  type PendingConfirmationResponse,
+  type SuccessfulToolResponse,
+  type ErrorToolResponse,
+  type ToolCallResponse
+} from './AgentCommunicationServer';
 
 // Export configuration and types
 export {
   AgentCommunicationConfig,
-  DEFAULT_AGENT_COMMUNICATION_CONFIG,
-  StandardRequestTypes,
-  StandardNotificationTypes
+  DEFAULT_AGENT_COMMUNICATION_CONFIG
 } from './AgentCommunicationClient';
 
 // Re-export common types from other packages

@@ -6,13 +6,17 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc && tsc-alias && echo '@ai-idp/observability-agent Build complete'",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/http-server.ts",
     "start": "node dist/index.js",
+    "http-server": "tsx src/http-server.ts",
+    "http-server:watch": "tsx watch src/http-server.ts",
     "type-check": "tsc --noEmit",
     "test": "vitest"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
-    "@ai-idp/agent-communication": "file:../../shared/agent-communication",
     "@ai-idp/qdrant-client": "file:../../shared/qdrant-client",
     "@ai-idp/types": "file:../../shared/types",
     "@ai-idp/utils": "file:../../shared/utils",
@@ -39,8 +43,5 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
-  },
-  "engines": {
-    "node": ">=20.0.0"
   }
 }

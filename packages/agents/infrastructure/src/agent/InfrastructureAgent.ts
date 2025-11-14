@@ -12,6 +12,28 @@ import { CloudOperations } from '../cloud/CloudOperations';
 import { KubernetesAI } from '../ai/KubernetesAI';
 import { ActionManager, ActionManagerConfig } from '@ai-idp/action-manager';
 
+// Inlined type from agent-communication (no longer used)
+type EnhancedToolHandler = {
+  handler: any;
+  schema: any;
+  defaultsGenerator?: any;
+  confirmationMessageGenerator?: any;
+  requiresConfirmation?: boolean;
+  description?: string;
+};
+
+import {
+  DeployApplicationSchema,
+  ScaleResourceSchema,
+  GetResourceStatusSchema,
+  GetResourceLogsSchema,
+  GenerateKubectlCommandSchema,
+  generateDeployApplicationDefaults,
+  generateScaleResourceDefaults,
+  generateKubectlCommandDefaults,
+  generateDeploymentConfirmationMessage
+} from '../schemas/infrastructure';
+
 /**
  * Configuration interface for Infrastructure Agent
  * 
@@ -358,6 +380,105 @@ export class InfrastructureAgent {
   getCapabilities(): AgentCapabilities {
     return this.capabilities;
   }
+
+
+  /**
+   * Get enhanced tool handlers with validation and smart defaults
+   *
+   * Returns a collection of enhanced tool handlers that implement the assume-and-confirm
+   * framework. Each handler includes:
+   * - Zod schema for parameter validation
+   * - Smart defaults generator function
+   * - Confirmation message generator (optional)
+   * - Confirmation requirement flag
+   *
+   * These enhanced handlers enable cost-effective parameter completion without expensive
+   * LLM calls, while providing full transparency through Kubernetes manifest previews.
+   *
+   * @returns {Record<string, EnhancedToolHandler>} Map of tool names to enhanced handlers
+   *
+   * @example
+   * ```typescript
+   * const handlers = infraAgent.getEnhancedToolHandlers();
+   * const deployHandler = handlers.deployApplication;
+   *
+   * // Validate user input
+   * const validation = deployHandler.schema.safeParse(userArgs);
+   *
+   * // Generate smart defaults for missing parameters
+   * if (!validation.success && deployHandler.defaultsGenerator) {
+   *   const defaults = await deployHandler.defaultsGenerator(userArgs, context);
+   *   const mergedArgs = { ...userArgs, ...defaults };
+   *
+   *   // Show confirmation with Kubernetes manifest preview
+   *   if (deployHandler.confirmationMessageGenerator) {
+   *     const message = deployHandler.confirmationMessageGenerator('deployApplication', mergedArgs);
+   *     // Display message to user for approval
+   *   }
+   * }
+   * ```
+   */
+  getEnhancedToolHandlers(): Record<string, EnhancedToolHandler> {
+    return {
+      // === DEPLOYAPPLICATION: Full assume-and-confirm workflow ===
+      // This is the flagship tool showcasing the complete framework
+      deployApplication: {
+        handler: this.deployApplication.bind(this),
+        schema: DeployApplicationSchema,                    // Comprehensive validation for K8s deployments
+        defaultsGenerator: async (args, context) => {
+          // Async wrapper to ensure compatibility with the framework
+          const defaults = await generateDeployApplicationDefaults(args, context);
+          return defaults;
+        },
+        requiresConfirmation: true,                         // Always require user approval for deployments
+        description: 'Deploy application to Kubernetes cluster',
+        confirmationMessageGenerator: generateDeploymentConfirmationMessage  // Shows K8s YAML preview
+      },
+
+      // === SCALERESOURCE: Resource modification with confirmation ===
+      // Scaling operations can be disruptive, so we require confirmation
+      scaleResource: {
+        handler: this.scaleResource.bind(this),
+        schema: ScaleResourceSchema,                        // Validation for scaling parameters
+        defaultsGenerator: generateScaleResourceDefaults,   // Simple defaults (namespace, etc.)
+        requiresConfirmation: true,                         // Scaling can impact production workloads
+        description: 'Scale Kubernetes resource replicas'
+        // Note: No confirmationMessageGenerator - uses default confirmation message
+      },
+
+      // === GETRESOURCESTATUS: Read-only operation, no confirmation needed ===
+      // Status checks are safe operations that don't modify cluster state
+      getResourceStatus: {
+        handler: this.getResourceStatus.bind(this),
+        schema: GetResourceStatusSchema,                    // Basic validation for resource queries
+        requiresConfirmation: false,                        // Read-only operation, safe to execute directly
+        description: 'Get Kubernetes resource status'
+        // Note: No defaultsGenerator - minimal parameters required
+      },
+
+      // === GETRESOURCELOGS: Another read-only operation ===
+      // Log retrieval is safe and doesn't require user confirmation
+      getResourceLogs: {
+        handler: this.getResourceLogs.bind(this),
+        schema: GetResourceLogsSchema,                      // Validation for log query parameters
+        requiresConfirmation: false,                        // Read-only operation, safe to execute directly
+        description: 'Retrieve Kubernetes pod logs'
+        // Note: No defaultsGenerator - log queries typically have explicit parameters
+      },
+
+      // === GENERATEKUBECTLCOMMAND: AI-powered command generation ===
+      // Command generation is safe (no execution), but benefits from smart defaults
+      generateKubectlCommand: {
+        handler: this.generateKubectlCommand.bind(this),
+        schema: GenerateKubectlCommandSchema,               // Validation for natural language inputs
+        defaultsGenerator: generateKubectlCommandDefaults,  // Handles intent/query field mapping
+        requiresConfirmation: false,                        // Command generation is safe (no actual execution)
+        description: 'Generate kubectl command from natural language'
+        // Note: No confirmationMessageGenerator - shows generated command directly
+      }
+    };
+  }
+
 
   /**
    * Execute Kubernetes deployment operation
@@ -1164,7 +1285,7 @@ export class InfrastructureAgent {
       return await this.executeToolViaActionManager(toolName, parameters, context);
     } 
     
-    // Otherwise, execute directly (legacy mode)
+    // Otherwise, execute directly
     return await this.executeToolDirectly(toolName, parameters, context);
   }
 
@@ -1238,7 +1359,7 @@ export class InfrastructureAgent {
   }
 
   /**
-   * Execute tool directly (legacy mode)
+   * Execute tool directly
    */
   private async executeToolDirectly(
     toolName: string,

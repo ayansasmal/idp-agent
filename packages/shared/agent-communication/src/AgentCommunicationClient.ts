@@ -1,12 +1,10 @@
-import WebSocket from 'ws';
-import {
-  createMessageConnection,
-  RequestType,
-  NotificationType,
-  MessageConnection
-} from 'vscode-jsonrpc';
-import { StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
-import { PassThrough } from 'stream';
+/**
+ * Agent Communication Client - Migrated from WebSocket to HTTP Transport
+ * Using MCP SDK StreamableHTTPClientTransport for reliable agent communication
+ */
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   createLogger,
   withRetry,
@@ -31,10 +29,12 @@ export interface AgentCommunicationConfig {
   maxRetries: number;
   /** Retry delay in milliseconds */
   retryDelay: number;
-  /** Heartbeat interval in milliseconds */
-  heartbeatInterval?: number;
+  /** Health check interval in milliseconds */
+  healthCheckInterval?: number;
   /** Connection health check timeout */
   healthCheckTimeout?: number;
+  /** Heartbeat interval for WebSocket connections */
+  heartbeatInterval?: number;
 }
 
 /**
@@ -44,8 +44,9 @@ export const DEFAULT_AGENT_COMMUNICATION_CONFIG: AgentCommunicationConfig = {
   clientTimeout: 30000,
   maxRetries: 3,
   retryDelay: 1000,
-  heartbeatInterval: 30000,
-  healthCheckTimeout: 90000
+  healthCheckInterval: 60000,
+  healthCheckTimeout: 90000,
+  heartbeatInterval: 30000
 };
 
 /**
@@ -53,55 +54,33 @@ export const DEFAULT_AGENT_COMMUNICATION_CONFIG: AgentCommunicationConfig = {
  */
 interface AgentRegistryEntry {
   capabilities: AgentCapabilities;
-  socket: WebSocket;
-  connection: MessageConnection;
-  lastHeartbeat: Date;
+  client: Client;
+  transport: StreamableHTTPClientTransport;
+  lastHealthCheck: Date;
   healthy: boolean;
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'error';
   failureCount: number;
   lastError?: Error;
   retryTimeout?: NodeJS.Timeout;
-  heartbeatInterval?: NodeJS.Timeout;
+  healthCheckInterval?: NodeJS.Timeout;
+  url: string;
 }
 
 /**
- * Standard JSON-RPC request types for agent communication
- */
-export const StandardRequestTypes = {
-  ListTools: new RequestType<{}, { tools: ToolDefinition[] }, void>('tools/list'),
-  CallTool: new RequestType<
-    { name: string; arguments: Record<string, any> },
-    any,
-    void
-  >('tools/call'),
-  HealthCheck: new RequestType<{}, { healthy: boolean; details?: any }, void>('health/check'),
-  GetCapabilities: new RequestType<{}, AgentCapabilities, void>('agent/capabilities')
-} as const;
-
-/**
- * Standard JSON-RPC notification types for agent communication
- */
-export const StandardNotificationTypes = {
-  Heartbeat: new NotificationType<{ timestamp: number; clientId?: string }>('heartbeat'),
-  StatusUpdate: new NotificationType<{ status: string; data?: any }>('status/update'),
-  Initialized: new NotificationType<{ protocolVersion: string; capabilities: any }>('notifications/initialized')
-} as const;
-
-/**
- * Standardized Agent Communication Client
+ * Agent Communication Client using HTTP Transport
+ * Provides reliable communication with agents via MCP over HTTP
  * 
- * Provides a consistent interface for WebSocket + JSON-RPC communication between agents
- * with automatic reconnection, heartbeat monitoring, and error handling.
+ * Migrated from WebSocket to HTTP transport for better reliability and compatibility
  * 
  * @class AgentCommunicationClient
- * @since 1.0.0
+ * @since 2.0.0 (HTTP Transport)
  * 
  * @example Basic Usage
  * ```typescript
  * const client = new AgentCommunicationClient(config);
  * 
  * // Register and connect to an agent
- * await client.connect('infrastructure', 'ws://localhost:3003/mcp');
+ * await client.connect('infrastructure', 'http://localhost:3003/mcp');
  * 
  * // Call a tool on the agent
  * const result = await client.callTool(
@@ -125,39 +104,40 @@ export class AgentCommunicationClient {
     loggerConfig?: Partial<ServiceLoggerConfig>
   ) {
     this.config = { ...DEFAULT_AGENT_COMMUNICATION_CONFIG, ...config };
-
     this.logger = createLogger({
       service: 'agent-communication-client',
       level: 'info',
       environment: (process.env.NODE_ENV as any) || 'development',
       ...loggerConfig
     });
+
+    this.logger.info({ config: this.config }, 'Agent Communication Client initialized with HTTP transport');
   }
 
   /**
-   * Connect to an agent via WebSocket + JSON-RPC
+   * Connect to an agent using HTTP transport
    */
-  async connect(agentId: string, wsUrl: string): Promise<void> {
+  async connect(agentId: string, httpUrl: string): Promise<void> {
     try {
-      this.logger.info({ agentId, wsUrl }, 'Connecting to agent');
+      this.logger.info({ agentId, httpUrl }, 'Connecting to agent via HTTP transport');
 
       // Initialize registry entry
       const registryEntry: AgentRegistryEntry = {
         capabilities: null as any, // Will be fetched after connection
-        socket: null as any,
-        connection: null as any,
-        lastHeartbeat: new Date(),
+        client: null as any,
+        transport: null as any,
+        lastHealthCheck: new Date(),
         healthy: false,
         connectionState: 'connecting',
-        failureCount: 0
+        failureCount: 0,
+        url: httpUrl
       };
-
       this.agentRegistry.set(agentId, registryEntry);
 
       // Connect with retry logic
       await withRetry(
         async () => {
-          await this.establishConnection(agentId, wsUrl, registryEntry);
+          await this.establishConnection(agentId, httpUrl, registryEntry);
         },
         {
           config: {
@@ -170,28 +150,12 @@ export class AgentCommunicationClient {
       );
 
       // Fetch agent capabilities after successful connection
-      try {
-        const capabilities = await registryEntry.connection.sendRequest(
-          StandardRequestTypes.GetCapabilities,
-          {}
-        );
-        registryEntry.capabilities = capabilities;
-      } catch (error) {
-        this.logger.warn({ agentId }, 'Could not fetch agent capabilities, using defaults');
-        registryEntry.capabilities = {
-          agentId,
-          name: agentId,
-          description: `Agent ${agentId}`,
-          tools: [],
-          specializations: [],
-          endpoints: { 
-            mcp: wsUrl,
-            health: wsUrl.replace('/mcp', '/health')
-          }
-        };
-      }
+      await this.fetchAgentCapabilities(agentId, registryEntry);
 
-      this.logger.info({ agentId }, 'Successfully connected to agent');
+      // Setup health monitoring
+      this.setupHealthMonitoring(agentId, registryEntry);
+
+      this.logger.info({ agentId }, 'Successfully connected to agent via HTTP transport');
     } catch (error) {
       const entry = this.agentRegistry.get(agentId);
       if (entry) {
@@ -207,199 +171,136 @@ export class AgentCommunicationClient {
         { service: 'agent-communication', operation: 'connect' },
         { cause: error as Error }
       );
-
       this.logger.error(serviceError, serviceError.message);
       throw serviceError;
     }
   }
 
   /**
-   * Establish WebSocket connection to agent
+   * Establish HTTP connection to agent
    * @private
    */
   private async establishConnection(
     agentId: string,
-    wsUrl: string,
+    httpUrl: string,
     entry: AgentRegistryEntry
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        const socket = new WebSocket(wsUrl);
+    try {
+      // Create HTTP transport
+      const transport = new StreamableHTTPClientTransport(
+        new URL(httpUrl)
+      );
 
-        const connectionTimeout = setTimeout(() => {
-          socket.close();
-          reject(new Error(`Connection timeout for agent: ${agentId}`));
-        }, this.config.clientTimeout);
+      // Create MCP client
+      const client = new Client({
+        name: 'agent-communication-client',
+        version: '2.0.0'
+      }, {
+        capabilities: {
+          sampling: {}
+        }
+      });
 
-        socket.on('open', () => {
-          clearTimeout(connectionTimeout);
+      // Connect client to transport
+      await client.connect(transport);
 
-          try {
-            // Create stream adapters for WebSocket to work with vscode-jsonrpc
-            const reader = new PassThrough({ objectMode: false });
-            const writer = new PassThrough({ objectMode: false });
-            
-            // Bridge WebSocket messages to streams
-            socket.on('message', (data) => {
-              reader.write(data);
-            });
-            
-            writer.on('data', (data) => {
-              socket.send(data);
-            });
-            
-            // Handle close events
-            socket.on('close', () => {
-              reader.end();
-              writer.end();
-            });
+      // Update registry entry
+      entry.client = client;
+      entry.transport = transport;
+      entry.connectionState = 'connected';
+      entry.healthy = true;
+      entry.failureCount = 0;
+      entry.lastError = undefined;
 
-            // Create JSON-RPC connection with proper stream message handlers
-            const messageReader = new StreamMessageReader(reader);
-            const messageWriter = new StreamMessageWriter(writer);
-            const connection = createMessageConnection(messageReader, messageWriter);
-
-            connection.listen();
-
-            // Update registry entry
-            entry.socket = socket;
-            entry.connection = connection;
-            entry.connectionState = 'connected';
-            entry.healthy = true;
-            entry.failureCount = 0;
-            entry.lastError = undefined;
-
-            // Setup event handlers
-            this.setupConnectionHandlers(agentId, entry);
-
-            this.logger.info({ agentId }, 'WebSocket connection established');
-            resolve();
-          } catch (error) {
-            clearTimeout(connectionTimeout);
-            reject(error);
-          }
-        });
-
-        socket.on('error', (error) => {
-          clearTimeout(connectionTimeout);
-          reject(error);
-        });
-
-        socket.on('close', () => {
-          clearTimeout(connectionTimeout);
-          if (entry.connectionState === 'connecting') {
-            reject(new Error(`Connection closed during setup for agent: ${agentId}`));
-          }
-        });
-
-      } catch (error) {
-        reject(error);
-      }
-    });
+      this.logger.info({ agentId }, 'HTTP transport connection established');
+    } catch (error) {
+      this.logger.error({ agentId, error }, 'Failed to establish HTTP connection');
+      throw error;
+    }
   }
 
   /**
-   * Setup connection event handlers
+   * Fetch agent capabilities
    * @private
    */
-  private setupConnectionHandlers(agentId: string, entry: AgentRegistryEntry): void {
-    const { socket, connection } = entry;
+  private async fetchAgentCapabilities(agentId: string, entry: AgentRegistryEntry): Promise<void> {
+    try {
+      const toolsResponse = await entry.client.listTools();
 
-    // WebSocket event handlers
-    socket.on('close', () => {
-      this.logger.warn({ agentId }, 'WebSocket connection closed');
-      entry.connectionState = 'disconnected';
-      entry.healthy = false;
+      // Convert MCP tools to AgentCapabilities format
+      const tools: ToolDefinition[] = toolsResponse.tools?.map(tool => ({
+        name: tool.name,
+        description: tool.description || '',
+        parameters: {
+          type: 'object' as const,
+          properties: (tool.inputSchema as any)?.properties || {},
+          required: (tool.inputSchema as any)?.required || []
+        }
+      })) || [];
 
-      this.cleanupAgent(agentId, entry);
-      this.scheduleReconnection(agentId);
-    });
+      entry.capabilities = {
+        agentId,
+        name: agentId,
+        description: `Agent ${agentId} via HTTP transport`,
+        tools,
+        specializations: ['http-transport', 'mcp'],
+        endpoints: {
+          mcp: entry.url,
+          health: entry.url.replace('/mcp', '/health')
+        }
+      };
 
-    socket.on('error', (error) => {
-      this.logger.error({ agentId, error: error.message }, 'WebSocket error');
-      entry.connectionState = 'error';
-      entry.healthy = false;
-      entry.lastError = error;
-      entry.failureCount += 1;
-    });
+      this.logger.info({
+        agentId,
+        toolCount: tools.length
+      }, 'Agent capabilities fetched via HTTP');
+    } catch (error) {
+      this.logger.warn({
+        agentId,
+        error: error instanceof Error ? error.message : String(error)
+      }, 'Could not fetch agent capabilities, using defaults');
 
-    // JSON-RPC notification handlers
-    connection.onNotification(StandardNotificationTypes.Heartbeat, (params) => {
-      entry.lastHeartbeat = new Date();
-      this.logger.debug({ agentId, timestamp: params.timestamp }, 'Received heartbeat');
-    });
-
-    connection.onNotification(StandardNotificationTypes.StatusUpdate, (params) => {
-      this.logger.info({ agentId, status: params.status }, 'Agent status update');
-    });
-
-    // Setup heartbeat monitoring
-    this.setupHeartbeat(agentId, entry);
+      entry.capabilities = {
+        agentId,
+        name: agentId,
+        description: `Agent ${agentId} via HTTP transport`,
+        tools: [],
+        specializations: ['http-transport', 'mcp'],
+        endpoints: {
+          mcp: entry.url,
+          health: entry.url.replace('/mcp', '/health')
+        }
+      };
+    }
   }
 
   /**
-   * Setup heartbeat monitoring
+   * Setup health monitoring for an agent
    * @private
    */
-  private setupHeartbeat(agentId: string, entry: AgentRegistryEntry): void {
-    if (!this.config.heartbeatInterval) return;
-
-    entry.heartbeatInterval = setInterval(() => {
-      if (entry.healthy && entry.connection) {
+  private setupHealthMonitoring(agentId: string, entry: AgentRegistryEntry): void {
+    if (this.config.healthCheckInterval && this.config.healthCheckInterval > 0) {
+      entry.healthCheckInterval = setInterval(async () => {
         try {
-          entry.connection.sendNotification(StandardNotificationTypes.Heartbeat, {
-            timestamp: Date.now(),
-            clientId: 'meta-agent'
-          });
-
-          // Check for heartbeat timeout
-          const timeSinceLastHeartbeat = Date.now() - entry.lastHeartbeat.getTime();
-          if (timeSinceLastHeartbeat > (this.config.healthCheckTimeout || 90000)) {
+          const healthResult = await this.performHealthCheck(agentId);
+          if (!healthResult.healthy) {
             this.logger.warn({
               agentId,
-              timeSinceLastHeartbeat
-            }, 'Agent heartbeat timeout detected');
-            entry.healthy = false;
+              details: healthResult.details
+            }, 'Health check failed for agent');
           }
         } catch (error) {
-          this.logger.warn({ agentId, error }, 'Failed to send heartbeat');
+          this.logger.error({
+            agentId,
+            error: error instanceof Error ? error.message : String(error)
+          }, 'Health check error for agent');
+          entry.healthy = false;
+          entry.lastError = error as Error;
         }
-      }
-    }, this.config.heartbeatInterval);
-  }
-
-  /**
-   * Schedule reconnection for disconnected agent
-   * @private
-   */
-  private scheduleReconnection(agentId: string): void {
-    const entry = this.agentRegistry.get(agentId);
-    if (!entry || entry.failureCount >= 5) {
-      return;
+      }, this.config.healthCheckInterval);
     }
-
-    const wsUrl = entry.capabilities?.endpoints?.mcp;
-    if (!wsUrl) return;
-
-    const retryDelayMs = this.config.retryDelay * Math.pow(2, entry.failureCount);
-
-    entry.retryTimeout = setTimeout(async () => {
-      this.logger.info({ agentId, attempt: entry.failureCount + 1 }, 'Attempting reconnection');
-
-      try {
-        await this.establishConnection(agentId, wsUrl, entry);
-      } catch (error) {
-        this.logger.error({ agentId, error }, 'Reconnection failed');
-        entry.failureCount += 1;
-
-        if (entry.failureCount < 5) {
-          this.scheduleReconnection(agentId);
-        }
-      }
-    }, retryDelayMs);
-
-    this.logger.info({ agentId, retryDelayMs }, 'Scheduled reconnection');
   }
+
 
   /**
    * Call a tool on a specific agent
@@ -410,39 +311,38 @@ export class AgentCommunicationClient {
     parameters: Record<string, any>,
     context: ConversationContext
   ): Promise<any> {
-    const startTime = Date.now();
+    const entry = this.agentRegistry.get(agentId);
+    if (!entry) {
+      throw new ServiceError(
+        `Agent not connected: ${agentId}`,
+        ErrorCode.NOT_FOUND,
+        { service: 'agent-communication', operation: 'callTool' }
+      );
+    }
+
+    if (!entry.healthy || entry.connectionState !== 'connected') {
+      throw new ServiceError(
+        `Agent is unhealthy or disconnected: ${agentId}`,
+        ErrorCode.SERVICE_UNAVAILABLE,
+        { service: 'agent-communication', operation: 'callTool' }
+      );
+    }
 
     try {
-      const entry = this.agentRegistry.get(agentId);
-      if (!entry) {
-        throw new ServiceError(
-          `Agent not connected: ${agentId}`,
-          ErrorCode.NOT_FOUND,
-          { service: 'agent-communication', operation: 'callTool' }
-        );
-      }
-
-      if (!entry.healthy || entry.connectionState !== 'connected') {
-        throw new ServiceError(
-          `Agent is unhealthy or disconnected: ${agentId}`,
-          ErrorCode.SERVICE_UNAVAILABLE,
-          { service: 'agent-communication', operation: 'callTool' }
-        );
-      }
-
       this.logger.info({
         toolName,
         agentId,
         parameters: Object.keys(parameters),
         contextId: context.conversationId
-      }, 'Calling tool on agent');
+      }, 'Calling tool via HTTP transport');
 
-      // Make JSON-RPC call with retry logic
-      const result = await withRetry(
-        () => entry.connection.sendRequest(StandardRequestTypes.CallTool, {
-          name: toolName,
-          arguments: parameters
-        }),
+      const mcpResponse = await withRetry(
+        async () => {
+          return await entry.client.callTool({
+            name: toolName,
+            arguments: parameters
+          });
+        },
         {
           config: {
             maxAttempts: this.config.maxRetries,
@@ -453,42 +353,73 @@ export class AgentCommunicationClient {
         }
       );
 
-      const executionTime = Date.now() - startTime;
+      // Handle proper MCP format with metadata at top level
+      // New format has metadata directly accessible, with fallback to old JSON parsing approach
+      let result: any;
+
+      if (mcpResponse.metadata && typeof mcpResponse.metadata === 'object') {
+        // New proper MCP format - metadata is at top level
+        result = {
+          result: {
+            success: !mcpResponse.isError,
+            message: Array.isArray(mcpResponse.content) && mcpResponse.content[0] && 'text' in mcpResponse.content[0]
+              ? mcpResponse.content[0].text : 'Operation completed',
+            data: mcpResponse.content || []
+          },
+          metadata: mcpResponse.metadata,
+          error: mcpResponse.isError ? { message: 'Tool execution failed' } : null
+        };
+      } else {
+        // Fallback to old format (JSON parsing) for backward compatibility
+        let parsedResult: any;
+        try {
+          if (mcpResponse.content && Array.isArray(mcpResponse.content) &&
+              mcpResponse.content[0] && 'text' in mcpResponse.content[0]) {
+            parsedResult = JSON.parse(mcpResponse.content[0].text as string);
+          } else {
+            parsedResult = mcpResponse;
+          }
+        } catch (parseError) {
+          this.logger.warn({
+            toolName,
+            agentId,
+            parseError: parseError instanceof Error ? parseError.message : String(parseError)
+          }, 'Failed to parse legacy JSON response, using raw response');
+          parsedResult = mcpResponse;
+        }
+
+        result = {
+          result: parsedResult,
+          metadata: parsedResult.metadata || {
+            executionTime: 0,
+            contextUsed: []
+          },
+          error: parsedResult.success === false ? { message: parsedResult.message } : null
+        };
+      }
 
       this.logger.info({
-        agentId,
         toolName,
-        executionTime,
-        success: true
-      }, 'Tool call completed successfully');
+        agentId,
+        success: true,
+        hasMetadata: !!result.metadata,
+        executionTime: result.metadata.executionTime
+      }, 'Tool call completed via HTTP transport');
 
-      return {
-        result,
-        metadata: {
-          agent: agentId,
-          executionTime,
-          contextUsed: context.history.slice(-3).map(h => h.id)
-        }
-      };
-
+      return result;
     } catch (error) {
-      const executionTime = Date.now() - startTime;
-
       this.logger.error({
-        agentId,
         toolName,
-        error: error instanceof Error ? error.message : String(error),
-        executionTime
-      }, 'Tool call failed');
+        agentId,
+        error: error instanceof Error ? error.message : String(error)
+      }, 'Tool call failed via HTTP transport');
 
       // Update agent state if connection error
-      const entry = this.agentRegistry.get(agentId);
-      if (entry && this.isConnectionError(error)) {
+      if (this.isConnectionError(error)) {
         entry.connectionState = 'error';
         entry.healthy = false;
         entry.failureCount += 1;
         entry.lastError = error as Error;
-
         this.scheduleReconnection(agentId);
       }
 
@@ -501,17 +432,25 @@ export class AgentCommunicationClient {
    */
   async getAgentTools(agentId: string): Promise<ToolDefinition[]> {
     const entry = this.agentRegistry.get(agentId);
-    if (!entry || !entry.healthy) {
+    if (!entry) {
       throw new ServiceError(
-        `Agent not available: ${agentId}`,
-        ErrorCode.SERVICE_UNAVAILABLE,
+        `Agent not found: ${agentId}`,
+        ErrorCode.NOT_FOUND,
         { service: 'agent-communication', operation: 'getAgentTools' }
       );
     }
 
     try {
-      const response = await entry.connection.sendRequest(StandardRequestTypes.ListTools, {});
-      return response.tools;
+      const response = await entry.client.listTools();
+      return response.tools?.map(tool => ({
+        name: tool.name,
+        description: tool.description || '',
+        parameters: {
+          type: 'object' as const,
+          properties: (tool.inputSchema as any)?.properties || {},
+          required: (tool.inputSchema as any)?.required || []
+        }
+      })) || [];
     } catch (error) {
       // Fallback to cached capabilities
       return entry.capabilities?.tools || [];
@@ -521,22 +460,37 @@ export class AgentCommunicationClient {
   /**
    * Perform health check on an agent
    */
-  async healthCheck(agentId: string): Promise<{ healthy: boolean; details?: any }> {
+  async performHealthCheck(agentId: string): Promise<{ healthy: boolean; details?: any }> {
     const entry = this.agentRegistry.get(agentId);
-    if (!entry || !entry.connection) {
+    if (!entry || !entry.client) {
       return { healthy: false, details: { error: 'Agent not connected' } };
     }
 
     try {
-      const response = await entry.connection.sendRequest(StandardRequestTypes.HealthCheck, {});
-      entry.healthy = response.healthy;
-      entry.lastHeartbeat = new Date();
-      return response;
+      // Use tool listing as a health check
+      await entry.client.listTools();
+      entry.lastHealthCheck = new Date();
+      entry.healthy = true;
+
+      return {
+        healthy: true,
+        details: {
+          transport: 'http',
+          agentId,
+          timestamp: entry.lastHealthCheck.toISOString()
+        }
+      };
     } catch (error) {
       entry.healthy = false;
+      entry.lastError = error as Error;
+
       return {
         healthy: false,
-        details: { error: error instanceof Error ? error.message : String(error) }
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+          transport: 'http',
+          agentId
+        }
       };
     }
   }
@@ -546,7 +500,7 @@ export class AgentCommunicationClient {
    */
   getConnectedAgents(): string[] {
     return Array.from(this.agentRegistry.entries())
-      .filter(([, entry]) => entry.healthy)
+      .filter(([, entry]) => entry.healthy && entry.connectionState === 'connected')
       .map(([agentId]) => agentId);
   }
 
@@ -564,21 +518,50 @@ export class AgentCommunicationClient {
    */
   private isConnectionError(error: any): boolean {
     if (!error) return false;
-
     const errorMessage = error instanceof Error ? error.message : String(error);
     const connectionErrorPatterns = [
       'ECONNREFUSED',
       'ECONNRESET',
       'ETIMEDOUT',
       'ENOTFOUND',
-      'WebSocket',
-      'Connection closed',
-      'Connection timeout'
+      'fetch failed',
+      'Connection timeout',
+      'HTTP 500',
+      'HTTP 502',
+      'HTTP 503'
     ];
-
     return connectionErrorPatterns.some(pattern =>
       errorMessage.includes(pattern)
     );
+  }
+
+  /**
+   * Schedule reconnection for disconnected agent
+   * @private
+   */
+  private scheduleReconnection(agentId: string): void {
+    const entry = this.agentRegistry.get(agentId);
+    if (!entry || entry.failureCount >= 5) {
+      return;
+    }
+
+    const retryDelayMs = this.config.retryDelay * Math.pow(2, entry.failureCount);
+
+    entry.retryTimeout = setTimeout(async () => {
+      this.logger.info({ agentId, attempt: entry.failureCount + 1 }, 'Attempting reconnection via HTTP');
+      try {
+        await this.establishConnection(agentId, entry.url, entry);
+        await this.fetchAgentCapabilities(agentId, entry);
+      } catch (error) {
+        this.logger.error({ agentId, error }, 'Reconnection failed');
+        entry.failureCount += 1;
+        if (entry.failureCount < 5) {
+          this.scheduleReconnection(agentId);
+        }
+      }
+    }, retryDelayMs);
+
+    this.logger.info({ agentId, retryDelayMs }, 'Scheduled HTTP reconnection');
   }
 
   /**
@@ -586,9 +569,11 @@ export class AgentCommunicationClient {
    * @private
    */
   private cleanupAgent(agentId: string, entry: AgentRegistryEntry): void {
-    if (entry.heartbeatInterval) {
-      clearInterval(entry.heartbeatInterval);
-      entry.heartbeatInterval = undefined;
+    this.logger.debug({ agentId }, 'Cleaning up agent resources');
+    
+    if (entry.healthCheckInterval) {
+      clearInterval(entry.healthCheckInterval);
+      entry.healthCheckInterval = undefined;
     }
 
     if (entry.retryTimeout) {
@@ -604,29 +589,34 @@ export class AgentCommunicationClient {
     const entry = this.agentRegistry.get(agentId);
     if (!entry) return;
 
-    this.logger.info({ agentId }, 'Disconnecting from agent');
+    this.logger.info({ agentId }, 'Disconnecting from agent via HTTP transport');
 
     this.cleanupAgent(agentId, entry);
 
-    if (entry.socket && entry.socket.readyState === WebSocket.OPEN) {
-      entry.socket.close();
+    if (entry.client) {
+      try {
+        await entry.client.close();
+      } catch (error) {
+        this.logger.warn({
+          agentId,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'Error closing HTTP client');
+      }
     }
 
     this.agentRegistry.delete(agentId);
+    this.logger.info({ agentId }, 'Agent disconnected via HTTP transport');
   }
 
   /**
    * Disconnect from all agents and cleanup
    */
   async cleanup(): Promise<void> {
-    this.logger.info('Cleaning up agent communication client');
-
+    this.logger.info('Cleaning up agent communication client (HTTP transport)');
     const cleanupPromises = Array.from(this.agentRegistry.keys()).map(
       agentId => this.disconnect(agentId)
     );
-
     await Promise.all(cleanupPromises);
-
     this.logger.info('Agent communication client cleanup completed');
   }
 }

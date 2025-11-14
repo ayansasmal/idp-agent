@@ -28,11 +28,15 @@ async function demonstrateDistributedWorkflow() {
       vectorSize: 384,
       timeout: 30000
     },
-    mcp: {
-      serverPort: 3001,
-      clientTimeout: 30000,
-      maxRetries: 3,
-      retryDelay: 1000
+    agents: {
+      infrastructure: {
+        url: 'http://localhost:3003/mcp',
+        timeout: 30000
+      },
+      observability: {
+        url: 'http://localhost:3005/mcp',
+        timeout: 30000
+      }
     },
     actionManager: {
       enabled: true,

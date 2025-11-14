@@ -68,6 +68,12 @@ export class IntentClassifier {
         throw new Error('No AI provider available for intent classification');
       }
 
+      // DEBUG: Log raw AI response
+      this.logger.debug({
+        rawAIResponse: JSON.stringify(intentResult, null, 2),
+        userInput
+      }, 'Raw AI response for intent classification');
+
       // Validate and parse result
       const parsedIntent = IntentSchema.parse(intentResult);
 
@@ -142,6 +148,21 @@ Infrastructure Agent:
 - provisionDatabase, createStorage, deployFunction, manageSecrets
 - Kubernetes operations, cloud provisioning, container management
 
+IMPORTANT PARAMETER REQUIREMENTS:
+
+For deployApplication action:
+- resourceName (REQUIRED): Extract application/service name from user input
+- containerImage (REQUIRED): Default to "{serviceName}:latest" if image not specified
+- namespace: default to "default"
+- replicas: default to 1
+- port: default to 80 for web services, 8080 for apps
+- environment: extract from context or default to "development"
+
+Example extractions:
+- "deploy nginx" → resourceName: "nginx", containerImage: "nginx:latest"
+- "deploy my app called myservice" → resourceName: "myservice", containerImage: "myservice:latest"
+- "deploy postgres database" → resourceName: "postgres", containerImage: "postgres:latest"
+
 Security Agent:
 - scanContainerImage, analyzeDependencies, validatePolicy, assessRisk
 - enforceCompliance, detectThreats, analyzeAnomalies, respondToIncident
@@ -184,18 +205,20 @@ Analyze the user request and respond with ONLY a JSON object in this exact forma
 
 CLASSIFICATION RULES:
 - Match user intent to most appropriate agent based on domain
-- Extract specific parameters from user input when possible
+- ALWAYS extract specific parameters from user input - never leave them empty or undefined
+- For deployApplication: ALWAYS provide resourceName and containerImage (use defaults if not explicit)
 - Use context to inform classification decisions
 - Confidence should reflect certainty (0.9+ for clear intent, 0.5-0.8 for moderate, <0.5 for unclear)
 - Action should be the most specific tool available for the task
 - If multiple agents could handle it, choose the most specialized one
+- CRITICAL: Parameters object must never contain undefined or null values - use sensible defaults
 
-Examples:
-- "Deploy my app" → infrastructure/deployApplication
-- "Scan for vulnerabilities" → security/scanContainerImage  
-- "Create approval for production" → workflow/createApproval
-- "Show me error logs" → observability/analyzeLogs
-- "Build and deploy v2.0" → cicd/triggerPipeline
+Examples with parameter extraction:
+- "Deploy nginx" → {agent: "infrastructure", action: "deployApplication", parameters: {resourceName: "nginx", containerImage: "nginx:latest"}}
+- "Deploy my app called myservice with 3 replicas" → {agent: "infrastructure", action: "deployApplication", parameters: {resourceName: "myservice", containerImage: "myservice:latest", replicas: 3}}
+- "Deploy postgres database" → {agent: "infrastructure", action: "deployApplication", parameters: {resourceName: "postgres", containerImage: "postgres:latest"}}
+- "Scan nginx image for vulnerabilities" → {agent: "security", action: "scanContainerImage", parameters: {image: "nginx"}}
+- "Show me error logs for myapp" → {agent: "observability", action: "analyzeLogs", parameters: {service: "myapp", logLevel: "error"}}
 `.trim();
   }
 

@@ -19,6 +19,9 @@ export {
   type MetaAgentConfig
 };
 
+// Export persona components
+export { PersonaRouter } from './persona/PersonaRouter';
+
 // Export types from shared packages
 export * from '@ai-idp/types';
 
@@ -55,11 +58,23 @@ export function createMetaAgent(overrides?: Partial<MetaAgentConfig>): MetaAgent
       timeout: parseInt(process.env.QDRANT_TIMEOUT || '30000', 10)
     },
 
-    mcp: {
-      serverPort: parseInt(process.env.MCP_SERVER_PORT || '3001', 10),
-      clientTimeout: parseInt(process.env.MCP_CLIENT_TIMEOUT || '30000', 10),
-      maxRetries: parseInt(process.env.MCP_MAX_RETRIES || '3', 10),
-      retryDelay: parseInt(process.env.MCP_RETRY_DELAY || '1000', 10)
+    agents: {
+      infrastructure: {
+        url: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
+        timeout: parseInt(process.env.INFRASTRUCTURE_AGENT_TIMEOUT || '30000', 10),
+        personaPath: process.env.INFRASTRUCTURE_PERSONA_PATH // Optional custom path
+      },
+      observability: {
+        url: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`,
+        timeout: parseInt(process.env.OBSERVABILITY_AGENT_TIMEOUT || '30000', 10),
+        personaPath: process.env.OBSERVABILITY_PERSONA_PATH // Optional custom path
+      }
+    },
+
+    // Persona-based routing configuration
+    personas: {
+      enabled: process.env.PERSONA_ROUTING_ENABLED !== 'false', // Enabled by default
+      basePath: process.env.PERSONA_BASE_PATH // Optional custom base path
     },
 
     // Action Manager configuration

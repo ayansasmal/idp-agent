@@ -138,3 +138,34 @@ export { withRetry, retryPredicates, type RetryConfig, type RetryContext } from 
  * ```
  */
 export * from './config/index.js';
+
+/**
+ * Feature flag utilities for communication architecture migration management.
+ * Provides centralized control over WebSocket to SSE+HTTP migration phases.
+ * 
+ * @example
+ * ```typescript
+ * import { shouldUseSseHttp, loadCommunicationFeatureFlags } from '@ai-idp/utils';
+ * 
+ * if (shouldUseSseHttp()) {
+ *   // Use new SSE + HTTP communication
+ * } else {
+ *   // Use current WebSocket communication  
+ * }
+ * ```
+ */
+export * from './featureFlags.js';
+
+/**
+ * Monitoring and metrics utilities for tracking communication architecture
+ * performance during the WebSocket to SSE+HTTP migration.
+ * 
+ * @example
+ * ```typescript
+ * import { globalMetricsCollector, createMetricsLogger } from '@ai-idp/utils';
+ * 
+ * const collector = globalMetricsCollector.getWebSocketCollector();
+ * collector.recordConnection(latency);
+ * ```
+ */
+export * from './monitoring.js';

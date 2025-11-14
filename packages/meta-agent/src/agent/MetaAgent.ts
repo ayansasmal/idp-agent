@@ -11,7 +11,8 @@ import {
 } from '@ai-idp/utils';
 import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
-import { AgentCommunicationClient } from '@ai-idp/agent-communication';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ActionManager, type ActionManagerConfig } from '@ai-idp/action-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type {
@@ -32,6 +33,7 @@ import {
   ActionQueryOptions
 } from '@ai-idp/action-manager';
 import { IntentClassifier } from '../routing/IntentClassifier';
+import { PersonaRouter } from '../persona/PersonaRouter';
 import { ContextManager } from '../context/ContextManager';
 import { ResponseCoordinator } from './ResponseCoordinator';
 // ApprovalModule not available in current build - using placeholder for approval methods
@@ -55,11 +57,21 @@ export interface MetaAgentConfig {
     vectorSize?: number;
     timeout?: number;
   };
-  mcp: {
-    serverPort?: number;
-    clientTimeout: number;
-    maxRetries: number;
-    retryDelay?: number;
+  agents: {
+    infrastructure: {
+      url: string;
+      timeout?: number;
+      personaPath?: string;
+    };
+    observability: {
+      url: string;
+      timeout?: number;
+      personaPath?: string;
+    };
+  };
+  personas?: {
+    enabled: boolean;
+    basePath?: string;
   };
   actionManager?: ActionManagerConfig & {
     enabled: boolean;
@@ -84,12 +96,22 @@ const MetaAgentConfigSchema = z.object({
     vectorSize: z.number().default(1536),
     timeout: z.number().default(30000)
   }),
-  mcp: z.object({
-    serverPort: z.number().default(3001),
-    clientTimeout: z.number().default(30000),
-    maxRetries: z.number().default(3),
-    retryDelay: z.number().default(1000)
+  agents: z.object({
+    infrastructure: z.object({
+      url: z.string(),
+      timeout: z.number().default(30000),
+      personaPath: z.string().optional()
+    }),
+    observability: z.object({
+      url: z.string(),
+      timeout: z.number().default(30000),
+      personaPath: z.string().optional()
+    })
   }),
+  personas: z.object({
+    enabled: z.boolean().default(true),
+    basePath: z.string().optional()
+  }).optional(),
   actionManager: z.object({
     enabled: z.boolean().default(false),
     dynamoDbClient: z.any(),
@@ -149,8 +171,9 @@ export class MetaAgent {
   private anthropic?: Anthropic;
   private openai?: OpenAI;
   private qdrantClient: QdrantContextClient;
-  private agentClient: AgentCommunicationClient;
+  private mcpClients: Map<string, Client>;
   private intentClassifier: IntentClassifier;
+  private personaRouter?: PersonaRouter;
   private contextManager: ContextManager;
   private responseCoordinator: ResponseCoordinator;
   private actionManager?: ActionManager;
@@ -203,11 +226,8 @@ export class MetaAgent {
       this.logger
     );
 
-    this.agentClient = new AgentCommunicationClient(this.config.mcp, {
-      service: 'meta-agent-client',
-      level: 'info',
-      environment: (process.env.NODE_ENV as any) || 'development'
-    });
+    // Initialize direct MCP clients for each agent
+    this.mcpClients = new Map();
 
     // Initialize Action Manager if enabled
     if (this.config.actionManager?.enabled) {
@@ -220,6 +240,12 @@ export class MetaAgent {
 
     // Initialize sub-components
     this.intentClassifier = new IntentClassifier(this.anthropic, this.openai, this.logger);
+
+    // Initialize PersonaRouter if personas are enabled
+    if (this.config.personas?.enabled) {
+      this.personaRouter = this.initializePersonaRouter();
+    }
+
     this.contextManager = new ContextManager(this.qdrantClient, this.logger);
     this.responseCoordinator = new ResponseCoordinator(this.logger);
     // ApprovalModule initialization placeholder
@@ -294,6 +320,17 @@ export class MetaAgent {
         this.logger.info({}, 'Context manager initialized');
       } catch (error) {
         this.logger.warn({ error: error?.message || error }, 'Context manager initialization failed - continuing without context management');
+        if (process.env.NODE_ENV !== 'development') {
+          throw error;
+        }
+      }
+
+      // Initialize direct MCP client connections
+      try {
+        await this.initializeMCPClients();
+        this.logger.info({}, 'Direct MCP client connections established');
+      } catch (error) {
+        this.logger.warn({ error: error?.message || error }, 'MCP client initialization failed - agents will not be available');
         if (process.env.NODE_ENV !== 'development') {
           throw error;
         }
@@ -417,39 +454,29 @@ export class MetaAgent {
         specializations: capabilities.specializations
       }, `Registering focused agent: ${capabilities.agentId}`);
 
-      // Validate agent endpoints before registration using WebSocket
-      this.logger.info({ mcpEndpoint: capabilities.endpoints.mcp }, 'Validating agent endpoints via WebSocket');
-      
+      // Validate agent endpoints before registration using HTTP
+      this.logger.info({ healthEndpoint: capabilities.endpoints.health }, 'Validating agent endpoints via HTTP');
+
       try {
-        const healthResult = await this.validateAgentHealthViaWebSocket(capabilities.endpoints.mcp);
+        const healthResult = await this.validateAgentHealthViaHTTP(capabilities.endpoints.health);
         if (!healthResult.healthy) {
           throw new Error(`Agent health check failed: ${healthResult.error || 'Unknown error'}`);
         }
-        
-        this.logger.info({ agentId: capabilities.agentId }, 'Agent WebSocket health endpoint validated successfully');
+
+        this.logger.info({ agentId: capabilities.agentId }, 'Agent HTTP health endpoint validated successfully');
       } catch (error: any) {
         throw new Error(`Agent endpoint validation failed: ${error.message}`);
       }
 
-      // Store in local registry first (essential for agent discovery)
+      // Store in local registry (essential for agent discovery)
       this.registeredAgents.set(capabilities.agentId, capabilities);
-      
-      // Attempt MCP registration with timeout - this enables full MCP protocol support
-      try {
-        // Set a reasonable timeout for MCP registration
-        const mcpTimeout = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('MCP registration timeout after 10 seconds')), 10000);
-        });
-        
-        await Promise.race([
-          this.agentClient.connect(capabilities.agentId, capabilities.endpoints.mcp),
-          mcpTimeout
-        ]);
-        
-        this.logger.info({ agentId: capabilities.agentId }, 'Successfully registered agent via MCP');
-      } catch (error: any) {
-        this.logger.warn({ agentId: capabilities.agentId, error: error.message }, 'MCP registration failed, continuing with direct HTTP communication');
-        // Agent is still registered in local registry, Meta-Agent can route requests
+
+      // Check if MCP client is available (initialized during Meta-Agent startup)
+      const mcpClient = this.mcpClients.get(capabilities.agentId);
+      if (mcpClient) {
+        this.logger.info({ agentId: capabilities.agentId }, 'Agent registered with direct MCP client available');
+      } else {
+        this.logger.warn({ agentId: capabilities.agentId }, 'Agent registered but MCP client not available - will use HTTP fallback');
       }
 
       this.logger.info({}, `Successfully registered focused agent: ${capabilities.agentId}`);
@@ -573,15 +600,15 @@ export class MetaAgent {
         ],
         specializations: [
           'kubernetes',
-          'deployment', 
+          'deployment',
           'scaling',
           'monitoring',
           'cloud-provisioning',
           'container-orchestration'
         ],
         endpoints: {
-          mcp: `ws://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
-          health: `ws://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`
+          mcp: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/mcp`,
+          health: `http://localhost:${process.env.INFRASTRUCTURE_AGENT_PORT || 3003}/health`
         }
       };
 
@@ -682,7 +709,7 @@ export class MetaAgent {
         ],
         specializations: [
           'monitoring',
-          'incident-management', 
+          'incident-management',
           'metrics-analysis',
           'log-analysis',
           'alerting',
@@ -690,8 +717,8 @@ export class MetaAgent {
           'root-cause-analysis'
         ],
         endpoints: {
-          mcp: `ws://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`,
-          health: `ws://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`
+          mcp: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/mcp`,
+          health: `http://localhost:${process.env.OBSERVABILITY_AGENT_PORT || 3005}/health`
         }
       };
 
@@ -783,11 +810,25 @@ export class MetaAgent {
       }, 'Retrieved relevant context');
 
       // 2. Classify intent and determine agent routing
-      const intent = await this.intentClassifier.classifyIntent(
-        userInput,
-        context,
-        relevantContext
-      );
+      let intent: AgentIntent;
+
+      if (this.personaRouter) {
+        // Use persona-based routing for enhanced intelligence
+        this.logger.info({ requestId }, 'Using persona-based routing');
+        intent = await this.personaRouter.routeWithPersona(
+          userInput,
+          context,
+          relevantContext
+        );
+      } else {
+        // Fallback to traditional intent classification
+        this.logger.info({ requestId }, 'Using traditional intent classification');
+        intent = await this.intentClassifier.classifyIntent(
+          userInput,
+          context,
+          relevantContext
+        );
+      }
 
       this.logger.info({
         requestId,
@@ -863,11 +904,11 @@ export class MetaAgent {
   ): Promise<AgentResponse[]> {
     try {
       this.logger.info({ action: intent.action }, 'Calling Infrastructure Agent directly');
-      
+
       // Extract nginx deployment parameters
       let resourceName = 'nginx';
       let replicas = 1;
-      
+
       // Simple parameter extraction from intent
       if (intent.parameters.resourceName) {
         resourceName = intent.parameters.resourceName;
@@ -875,7 +916,7 @@ export class MetaAgent {
       if (intent.parameters.replicas) {
         replicas = intent.parameters.replicas;
       }
-      
+
       // Call Infrastructure Agent directly
       const infrastructureResponse = await fetch('http://localhost:3003/tools/deployApplication', {
         method: 'POST',
@@ -888,13 +929,13 @@ export class MetaAgent {
           environment: context.metadata.environment || 'development'
         })
       });
-      
+
       if (!infrastructureResponse.ok) {
         throw new Error(`Infrastructure Agent responded with ${infrastructureResponse.status}`);
       }
-      
+
       const result = await infrastructureResponse.json();
-      
+
       // Convert Infrastructure Agent response to AgentResponse format
       const agentResponse: AgentResponse = {
         agentId: 'infrastructure',
@@ -908,12 +949,16 @@ export class MetaAgent {
           action: 'deployApplication'
         }
       };
-      
+
       return [agentResponse];
-      
+
     } catch (error: any) {
-      this.logger.error({ error: error.message }, 'Direct Infrastructure Agent call failed');
-      
+      this.logger.error({
+        error: error.message,
+        errorStack: error.stack,
+        errorType: error.constructor.name
+      }, 'DEBUG: Direct Infrastructure Agent call failed');
+
       const errorResponse: AgentResponse = {
         agentId: 'infrastructure',
         success: false,
@@ -927,7 +972,7 @@ export class MetaAgent {
           contextUsed: []
         }
       };
-      
+
       return [errorResponse];
     }
   }
@@ -944,7 +989,7 @@ export class MetaAgent {
     if (this.actionManager && this.shouldUseActionManager(intent)) {
       return await this.routeViaActionManager(intent, context);
     }
-    
+
     // Fall back to direct agent communication
     return await this.routeDirectly(intent, context);
   }
@@ -954,8 +999,8 @@ export class MetaAgent {
    */
   private shouldUseActionManager(intent: AgentIntent): boolean {
     // Use Action Manager for infrastructure operations that benefit from tracking
-    return intent.agent === 'infrastructure' && 
-           ['deployApplication', 'scaleResource', 'provisionDatabase'].includes(intent.action);
+    return intent.agent === 'infrastructure' &&
+      ['deployApplication', 'scaleResource', 'provisionDatabase'].includes(intent.action);
   }
 
   /**
@@ -985,7 +1030,7 @@ export class MetaAgent {
 
       // Create action record
       const actionRecord = await this.actionManager.createAction(actionRequest);
-      
+
       this.logger.info({ actionId: actionRecord.actionId, toolName: intent.action }, 'Created distributed action');
 
       // Return immediate response with action tracking info
@@ -1019,7 +1064,7 @@ export class MetaAgent {
 
     } catch (error: any) {
       this.logger.error({ error: error.message, intent }, 'Failed to route via Action Manager');
-      
+
       // Fall back to direct routing on error
       this.logger.warn({}, 'Falling back to direct agent communication');
       return await this.routeDirectly(intent, context);
@@ -1041,7 +1086,7 @@ export class MetaAgent {
       'generateKubectlCommand': ActionIntent.AI_GENERATE,
       'generateKubernetesManifest': ActionIntent.AI_GENERATE
     };
-    
+
     return mapping[actionName] || ActionIntent.DEPLOY;
   }
 
@@ -1053,12 +1098,12 @@ export class MetaAgent {
     context: ConversationContext
   ): Promise<AgentResponse[]> {
     const targetAgent = this.registeredAgents.get(intent.agent);
-    
+
     // Direct Infrastructure Agent bypass for deployment operations
     if (!targetAgent && intent.agent === 'infrastructure' && intent.action === 'deployApplication') {
       return await this.callInfrastructureAgentDirect(intent, context);
     }
-    
+
     if (!targetAgent) {
       throw new Error(`No agent registered for: ${intent.agent}`);
     }
@@ -1076,10 +1121,10 @@ export class MetaAgent {
 
     // Map intent parameters to agent tool parameters
     let mappedParameters = { ...intent.parameters };
-    
+
     // Map parameters for Infrastructure Agent deployApplication tool
     if (intent.agent === 'infrastructure' && intent.action === 'deployApplication') {
-      // Map application_name -> resourceName and image -> containerImage
+      // Map legacy parameter names if they exist
       if (intent.parameters.application_name) {
         mappedParameters.resourceName = intent.parameters.application_name;
         delete mappedParameters.application_name;
@@ -1088,37 +1133,68 @@ export class MetaAgent {
         mappedParameters.containerImage = intent.parameters.image;
         delete mappedParameters.image;
       }
+      // Parameters are already in correct format from enhanced IntentClassifier
+      // No additional mapping needed for resourceName and containerImage
     }
-    
+
     // Merge context into parameters for agent compatibility
     const parametersWithContext = {
       ...mappedParameters,
       context: context
     };
 
-    this.logger.info({
+    this.logger.debug({
       agent: intent.agent,
       tool: tool.name,
-      parameters: Object.keys(parametersWithContext)
-    }, 'Routing to agent');
+      intentParameters: intent.parameters,
+      mappedParameters: mappedParameters,
+      parametersWithContext: parametersWithContext
+    }, 'DEBUG: Parameter mapping and routing to agent');
 
-    // Call the focused agent via MCP with fallback to direct HTTP
+    // Call the focused agent via direct MCP client with fallback to direct HTTP
     let mcpResponse: MCPResponse;
-    
+
     try {
-      mcpResponse = await this.agentClient.callTool(
-        intent.agent,
-        tool.name,
-        parametersWithContext,
-        context
-      );
+      const mcpClient = this.mcpClients.get(intent.agent);
+      if (!mcpClient) {
+        throw new Error(`No MCP client found for agent ${intent.agent}`);
+      }
+
+      this.logger.debug({
+        agent: intent.agent,
+        tool: tool.name,
+        argumentsKeys: Object.keys(parametersWithContext),
+        arguments: parametersWithContext
+      }, 'DEBUG: Calling MCP client with arguments');
+
+      const result = await mcpClient.callTool({
+        name: tool.name,
+        arguments: parametersWithContext
+      });
+
+      this.logger.debug({
+        agent: intent.agent,
+        tool: tool.name,
+        resultType: typeof result,
+        resultContent: result?.content
+      }, 'DEBUG: MCP client call result');
+
+      mcpResponse = {
+        result: result.content,
+        id: `${context.conversationId}_${Date.now()}`,
+        metadata: {
+          agent: intent.agent,
+          executionTime: 0, // Will be calculated by caller
+          contextUsed: context.history.slice(-3).map(h => h.id)
+        }
+      };
     } catch (error: any) {
-      this.logger.warn({ 
-        agent: intent.agent, 
-        tool: tool.name, 
-        error: error.message 
+      this.logger.warn({
+        agent: intent.agent,
+        tool: tool.name,
+        error: error.message
       }, 'MCP call failed, attempting direct HTTP call');
-      
+
       try {
         // Fall back to direct HTTP call to agent's MCP endpoint
         const agentUrl = targetAgent.endpoints.mcp.replace('/mcp', '');
@@ -1135,22 +1211,22 @@ export class MetaAgent {
             id: `${context.conversationId}_${Date.now()}`
           })
         });
-        
+
         if (!directResponse.ok) {
           throw new Error(`Direct HTTP call failed: ${directResponse.status} ${directResponse.statusText}`);
         }
-        
+
         const directResult = await directResponse.json();
-        
+
         if (directResult.error) {
           throw new Error(`Agent returned error: ${directResult.error.message}`);
         }
-        
-        this.logger.info({ 
-          agent: intent.agent, 
-          tool: tool.name 
+
+        this.logger.info({
+          agent: intent.agent,
+          tool: tool.name
         }, 'Direct HTTP fallback successful');
-        
+
         // Convert direct response to MCP format
         mcpResponse = {
           result: directResult.result,
@@ -1162,13 +1238,13 @@ export class MetaAgent {
           }
         };
       } catch (fallbackError: any) {
-        this.logger.error({ 
-          agent: intent.agent, 
-          tool: tool.name, 
+        this.logger.error({
+          agent: intent.agent,
+          tool: tool.name,
           originalError: error.message,
           fallbackError: fallbackError.message
         }, 'Both MCP call and direct HTTP fallback failed');
-        
+
         throw new Error(`MCP call failed: ${error.message}. HTTP fallback also failed: ${fallbackError.message}`);
       }
     }
@@ -1240,13 +1316,26 @@ export class MetaAgent {
           continue;
         }
 
-        // Execute step
-        const mcpResponse = await this.agentClient.callTool(
-          step.agent,
-          step.action,
-          step.parameters,
-          workflow.context
-        );
+        // Execute step via direct MCP client
+        const mcpClient = this.mcpClients.get(step.agent);
+        if (!mcpClient) {
+          throw new Error(`No MCP client found for agent ${step.agent}`);
+        }
+
+        const result = await mcpClient.callTool({
+          name: step.action,
+          arguments: step.parameters
+        });
+
+        const mcpResponse: MCPResponse = {
+          result: result.content,
+          id: `${workflow.workflowId}_${step.stepId}`,
+          metadata: {
+            agent: step.agent,
+            executionTime: 0,
+            contextUsed: []
+          }
+        };
 
         const agentResponse: AgentResponse = {
           agentId: step.agent,
@@ -1389,19 +1478,25 @@ export class MetaAgent {
    * @version 1.1.0 - Added Qdrant and MCP health details
    */
   async getAgentStatus(): Promise<Record<string, any>> {
-    // Check health for all connected agents
-    const connectedAgents = this.agentClient.getConnectedAgents();
+    // Check health for all MCP connected agents
+    const connectedAgents = Array.from(this.mcpClients.keys());
     const healthStatus: Record<string, boolean> = {};
-    
+
     for (const agentId of connectedAgents) {
       try {
-        const health = await this.agentClient.healthCheck(agentId);
-        healthStatus[agentId] = health.healthy;
+        // For agents in our registry, use HTTP health check
+        const agent = this.registeredAgents.get(agentId);
+        if (agent) {
+          const health = await this.validateAgentHealthViaHTTP(agent.endpoints.health);
+          healthStatus[agentId] = health.healthy;
+        } else {
+          healthStatus[agentId] = false;
+        }
       } catch (error) {
         healthStatus[agentId] = false;
       }
     }
-    
+
     const registeredAgents = Array.from(this.registeredAgents.values());
 
     return {
@@ -1565,7 +1660,7 @@ export class MetaAgent {
     if (!this.actionManager) {
       throw new Error('Action Manager not enabled');
     }
-    
+
     return await this.actionManager.getAction(actionId);
   }
 
@@ -1577,7 +1672,7 @@ export class MetaAgent {
     if (!this.actionManager) {
       throw new Error('Action Manager not enabled');
     }
-    
+
     return await this.actionManager.getActionsByUser(userId, options);
   }
 
@@ -1589,7 +1684,7 @@ export class MetaAgent {
     if (!this.actionManager) {
       throw new Error('Action Manager not enabled');
     }
-    
+
     return await this.actionManager.getActionsBySession(sessionId, options);
   }
 
@@ -1608,7 +1703,7 @@ export class MetaAgent {
         byAgent: {}
       };
     }
-    
+
     return await this.actionManager.getActionStatistics();
   }
 
@@ -1620,34 +1715,126 @@ export class MetaAgent {
   }
 
   /**
-   * Validate agent health via WebSocket connection
+   * Validate agent health via HTTP endpoint
    */
-  private async validateAgentHealthViaWebSocket(mcpEndpoint: string): Promise<{ healthy: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      try {
-        const WebSocket = require('ws');
-        const ws = new WebSocket(mcpEndpoint);
-        
-        const timeout = setTimeout(() => {
-          ws.terminate();
-          resolve({ healthy: false, error: 'WebSocket connection timeout' });
-        }, 5000);
+  private async validateAgentHealthViaHTTP(healthEndpoint: string): Promise<{ healthy: boolean; error?: string }> {
+    try {
+      const response = await fetch(healthEndpoint, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
 
-        ws.on('open', () => {
-          clearTimeout(timeout);
-          ws.close();
-          resolve({ healthy: true });
-        });
-
-        ws.on('error', (error: Error) => {
-          clearTimeout(timeout);
-          resolve({ healthy: false, error: error.message });
-        });
-
-      } catch (error: any) {
-        resolve({ healthy: false, error: error.message });
+      if (!response.ok) {
+        return { healthy: false, error: `HTTP ${response.status}: ${response.statusText}` };
       }
+
+      const healthData = await response.json();
+      return {
+        healthy: healthData.status === 'healthy',
+        error: healthData.status !== 'healthy' ? `Unhealthy status: ${healthData.status}` : undefined
+      };
+
+    } catch (error: any) {
+      return { healthy: false, error: error.message };
+    }
+  }
+
+  /**
+   * Initialize direct MCP client connections to agents
+   */
+  private async initializeMCPClients(): Promise<void> {
+    try {
+      this.logger.info('Initializing direct MCP client connections...');
+
+      // Initialize Infrastructure Agent MCP client
+      const infraTransport = new StreamableHTTPClientTransport(
+        new URL(this.config.agents.infrastructure.url)
+      );
+      const infraClient = new Client(
+        {
+          name: 'meta-agent-infrastructure-client',
+          version: '1.0.0'
+        },
+        {
+          capabilities: {
+            tools: {}
+          }
+        }
+      );
+      await infraClient.connect(infraTransport);
+      this.mcpClients.set('infrastructure', infraClient);
+
+      // Initialize Observability Agent MCP client
+      const obsTransport = new StreamableHTTPClientTransport(
+        new URL(this.config.agents.observability.url)
+      );
+      const obsClient = new Client(
+        {
+          name: 'meta-agent-observability-client',
+          version: '1.0.0'
+        },
+        {
+          capabilities: {
+            tools: {}
+          }
+        }
+      );
+      await obsClient.connect(obsTransport);
+      this.mcpClients.set('observability', obsClient);
+
+      this.logger.info('✅ Direct MCP client connections established');
+    } catch (error) {
+      this.logger.error({ error }, '❌ Failed to initialize MCP clients');
+      throw error;
+    }
+  }
+
+  /**
+   * Initialize PersonaRouter with agent configurations
+   */
+  private initializePersonaRouter(): PersonaRouter {
+    const { join } = require('path');
+    const agentConfigs = new Map();
+
+    // Default base path for personas
+    const basePath = this.config.personas?.basePath ||
+      join(__dirname, '../../agents');
+
+    // Configure Infrastructure Agent
+    const infraPersonaPath = this.config.agents.infrastructure.personaPath ||
+      join(basePath, 'infrastructure/personas/infrastructure-agent.md');
+
+    agentConfigs.set('infrastructure', {
+      name: 'infrastructure',
+      filePath: infraPersonaPath,
+      url: this.config.agents.infrastructure.url,
+      enabled: true
     });
+
+    // Configure Observability Agent
+    const obsPersonaPath = this.config.agents.observability.personaPath ||
+      join(basePath, 'observability/personas/observability-agent.md');
+
+    agentConfigs.set('observability', {
+      name: 'observability',
+      filePath: obsPersonaPath,
+      url: this.config.agents.observability.url,
+      enabled: true
+    });
+
+    this.logger.info({
+      personasEnabled: true,
+      agentCount: agentConfigs.size,
+      basePath: basePath
+    }, 'Initialized PersonaRouter with agent configurations');
+
+    return new PersonaRouter(
+      agentConfigs,
+      this.anthropic,
+      this.openai,
+      this.logger
+    );
   }
 
   /**
@@ -1657,7 +1844,17 @@ export class MetaAgent {
     this.logger.info({}, 'Cleaning up Meta-Agent resources');
 
     try {
-      await this.agentClient.cleanup();
+      // Cleanup MCP clients
+      for (const [agentId, client] of this.mcpClients.entries()) {
+        try {
+          await client.close();
+          this.logger.debug(`Closed MCP client connection to ${agentId}`);
+        } catch (error) {
+          this.logger.warn({ agentId, error }, 'Failed to close MCP client connection');
+        }
+      }
+      this.mcpClients.clear();
+
       this.logger.info({}, 'Meta-Agent cleanup completed');
     } catch (error: any) {
       this.logger.error(error, 'Meta-Agent cleanup failed');
