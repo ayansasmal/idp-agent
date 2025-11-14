@@ -13,6 +13,10 @@ import type { ConversationContext } from '@ai-idp/types';
 import Anthropic from '@anthropic-ai/sdk';
 import { createLogger } from '@ai-idp/utils';
 import { join } from 'path';
+import { config } from 'dotenv';
+
+// Load environment variables from project root .env file
+config({ path: join(__dirname, '../../../../.env') });
 
 async function testPersonaRouting() {
   console.log('🎭 Testing Persona-Based Routing\n');
@@ -31,18 +35,18 @@ async function testPersonaRouting() {
   // Set up agent configurations with persona paths
   const agentConfigs = new Map();
 
-  const basePath = join(__dirname, '../../agents');
+  const basePath = join(__dirname, '../../../..');
 
   agentConfigs.set('infrastructure', {
     name: 'infrastructure',
-    filePath: join(basePath, 'infrastructure/personas/infrastructure-agent.md'),
+    filePath: join(basePath, 'packages/agents/infrastructure/personas/infrastructure-agent.md'),
     url: 'http://localhost:3003/mcp',
     enabled: true
   });
 
   agentConfigs.set('observability', {
     name: 'observability',
-    filePath: join(basePath, 'observability/personas/observability-agent.md'),
+    filePath: join(basePath, 'packages/agents/observability/personas/observability-agent.md'),
     url: 'http://localhost:3005/mcp',
     enabled: true
   });
@@ -182,7 +186,20 @@ async function testPersonaRouting() {
       // Check parameter extraction
       Object.entries(testCase.expectedParams).forEach(([expectedKey, expectedValue]) => {
         const actualValue = intent.parameters[expectedKey];
-        const paramCorrect = actualValue === expectedValue;
+
+        // Special comparison for array values
+        let paramCorrect = false;
+        if (Array.isArray(expectedValue) && Array.isArray(actualValue)) {
+          // Compare arrays (ignore order, just check contents)
+          const expectedSet = new Set(expectedValue);
+          const actualSet = new Set(actualValue);
+          paramCorrect = expectedSet.size === actualSet.size &&
+                        [...expectedSet].every(item => actualSet.has(item));
+        } else {
+          // Regular comparison for non-array values
+          paramCorrect = actualValue === expectedValue;
+        }
+
         console.log(`    ${expectedKey}: ${paramCorrect ? '✅' : '❌'} (expected: ${JSON.stringify(expectedValue)}, got: ${JSON.stringify(actualValue)})`);
         if (!paramCorrect) testPassed = false;
       });

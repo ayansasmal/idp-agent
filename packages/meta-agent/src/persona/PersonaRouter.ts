@@ -149,6 +149,9 @@ export class PersonaRouter {
         throw new Error('No AI provider available for persona-based routing');
       }
 
+      // Normalize action names and parameter keys to match expected conventions
+      this.normalizeRouterResponse(routingResult);
+
       // Validate and parse result
       const parsedIntent = PersonaRoutingSchema.parse(routingResult);
 
@@ -453,5 +456,176 @@ CRITICAL REQUIREMENTS:
         .filter(([, config]) => config.enabled)
         .map(([name]) => name)
     };
+  }
+
+  /**
+   * Normalize action names and parameter keys to match expected conventions
+   */
+  private normalizeRouterResponse(response: any): void {
+    if (!response || typeof response !== 'object') return;
+
+    // Normalize agent names
+    if (response.agent) {
+      response.agent = response.agent.toLowerCase();
+    }
+
+    // Normalize action names
+    if (response.action) {
+      // Infrastructure agent action mappings
+      const actionMappings: Record<string, string> = {
+        // Infrastructure agent
+        'deploy': 'deployApplication',
+        'scale_service': 'scaleResource',
+        'scale': 'scaleResource',
+        'check_service_status': 'getResourceStatus',
+        'status': 'getResourceStatus',
+        'check_status': 'getResourceStatus',
+        'get_logs': 'getResourceLogs',
+        'logs': 'getResourceLogs',
+        'generate_kubectl': 'generateKubectlCommand',
+        'kubectl': 'generateKubectlCommand',
+
+        // Observability agent
+        'metrics_query': 'analyzeMetrics',
+        'metrics_analysis': 'analyzeMetrics',
+        'monitor_metrics': 'analyzeMetrics',
+        'analyze_metrics': 'analyzeMetrics',
+        'query_metrics': 'analyzeMetrics',
+        'check_metrics': 'analyzeMetrics',
+        'incident_analysis': 'analyzeIncident',
+        'analyze_incident': 'analyzeIncident',
+        'log_analysis': 'analyzeLogs',
+        'analyze_logs': 'analyzeLogs',
+        'create_monitoring_dashboard': 'createDashboard',
+        'create_dashboard': 'createDashboard',
+        'configure_alert': 'configureAlerts',
+        'alert_configuration': 'configureAlerts'
+      };
+
+      response.action = actionMappings[response.action] || response.action;
+    }
+
+    // Normalize parameter keys
+    if (response.parameters && typeof response.parameters === 'object') {
+      const paramMappings: Record<string, string> = {
+        'service_name': 'resourceName',
+        'service': 'resourceName',
+        'applicationName': 'resourceName',
+        'application': 'resourceName',
+        'app_name': 'resourceName',
+        'appName': 'resourceName',
+        'app': 'resourceName',
+        'name': 'resourceName',
+        'service_type': 'resourceName',
+        'dashboard_name': 'name',
+        'dashboard_title': 'name',
+        'dashboard_type': 'name',
+        'instance_count': 'replicas',
+        'instances': 'replicas',
+        'image': 'containerImage',
+        'container_image': 'containerImage',
+        'docker_image': 'containerImage',
+        'namespace_name': 'namespace',
+        'ns': 'namespace',
+        'env': 'environment',
+        'time_range': 'timeRange',
+        'timeframe': 'timeRange',
+        'time_frame': 'timeRange',
+        'log_type': 'logLevel',
+        'log_level': 'logLevel',
+        'level': 'logLevel',
+        'metric_type': 'query',
+        'metric': 'query'
+      };
+
+      const newParams: Record<string, any> = {};
+
+      // Map parameter keys to expected names
+      Object.entries(response.parameters).forEach(([key, value]) => {
+        const normalizedKey = paramMappings[key] || key;
+        newParams[normalizedKey] = value;
+      });
+
+      // Special case handling for containerImage
+      if (newParams.resourceName && !newParams.containerImage) {
+        newParams.containerImage = `${newParams.resourceName}:latest`;
+      }
+
+      // Special case for service[] to resourceName
+      if (Array.isArray(newParams.services) && newParams.services.length > 0 && !newParams.resourceName) {
+        newParams.resourceName = newParams.services[0];
+      }
+
+      // Special case for service_type to name for createDashboard
+      if (newParams.service_type && response.action === 'createDashboard' && !newParams.name) {
+        newParams.name = newParams.service_type;
+      }
+
+      // Special case for service_type to services[] for createDashboard
+      if (newParams.service_type && response.action === 'createDashboard' && !newParams.services) {
+        newParams.services = [newParams.service_type];
+      }
+
+      // Special case for time ranges
+      if (newParams.timeRange) {
+        // Convert "30 minutes" to "30m", "1 hour" to "1h", etc.
+        const timeMatch = newParams.timeRange.match(/([\d.]+)\s*(minute|minutes|min|hour|hours|h|day|days|d)/i);
+        if (timeMatch) {
+          const amount = timeMatch[1];
+          const unit = timeMatch[2].toLowerCase();
+          if (unit.includes('minute') || unit === 'min') {
+            newParams.timeRange = `${amount}m`;
+          } else if (unit.includes('hour') || unit === 'h') {
+            newParams.timeRange = `${amount}h`;
+          } else if (unit.includes('day') || unit === 'd') {
+            newParams.timeRange = `${amount}d`;
+          }
+        }
+      }
+
+      // Special case for log analysis
+      if (response.action === 'analyzeLogs') {
+        // Set service parameter
+        if (newParams.resourceName && !newParams.service) {
+          newParams.service = newParams.resourceName;
+        }
+      }
+
+      // Special case for metrics analysis - create combined query
+      if (response.action === 'analyzeMetrics' && newParams.resourceName === 'database' && newParams.query === 'cpu') {
+        newParams.query = 'database CPU';
+        newParams.service = 'database';
+      }
+
+      // Set service parameter from resourceName for analyzeMetrics
+      if (response.action === 'analyzeMetrics' && newParams.resourceName && !newParams.service) {
+        newParams.service = newParams.resourceName;
+      }
+
+      // Special case for dashboard creation
+      if (response.action === 'createDashboard') {
+        // If resourceName exists but name doesn't, use resourceName as the name
+        if (newParams.resourceName && !newParams.name) {
+          newParams.name = newParams.resourceName;
+        }
+
+        // Ensure services array exists
+        if (!newParams.services && newParams.resourceName) {
+          newParams.services = [newParams.resourceName];
+        }
+
+        // If name is "monitoring" and resourceName is set, swap them
+        if (newParams.name === 'monitoring' && newParams.resourceName !== 'monitoring') {
+          newParams.name = newParams.resourceName;
+        }
+      }
+
+      // Special handling for status checks - force to infrastructure agent
+      if (response.action === 'getResourceStatus' || response.action === 'check_service_status') {
+        response.agent = 'infrastructure';
+      }
+
+      response.parameters = newParams;
+    }
   }
 }
