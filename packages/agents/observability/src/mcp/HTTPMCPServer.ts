@@ -88,7 +88,7 @@ export class HTTPMCPServer {
           };
 
           this.logger.info({ args }, '📊 Analyzing metrics via HTTP MCP');
-          
+
           const result = await this.observabilityAgent.analyzeMetrics({
             query: args.query,
             duration: args.duration,
@@ -98,7 +98,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -106,7 +106,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Analyze metrics failed');
           return {
             content: [{
-              type: "text", 
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -143,7 +143,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -151,7 +151,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Analyze incident failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -189,7 +189,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -197,7 +197,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Analyze logs failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -235,7 +235,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -243,7 +243,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Create dashboard failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -281,7 +281,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -289,7 +289,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Configure alerts failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };

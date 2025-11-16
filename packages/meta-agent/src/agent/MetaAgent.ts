@@ -11,8 +11,7 @@ import {
 } from '@ai-idp/utils';
 import { z } from 'zod';
 import { QdrantContextClient } from '@ai-idp/qdrant-client';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { AgentCommunicationClient } from '@ai-idp/agent-communication';
 import { ActionManager, type ActionManagerConfig } from '@ai-idp/action-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type {
@@ -171,7 +170,7 @@ export class MetaAgent {
   private anthropic?: Anthropic;
   private openai?: OpenAI;
   private qdrantClient: QdrantContextClient;
-  private mcpClients: Map<string, Client>;
+  private mcpClients: Map<string, AgentCommunicationClient>;
   private intentClassifier: IntentClassifier;
   private personaRouter?: PersonaRouter;
   private contextManager: ContextManager;
@@ -1748,29 +1747,21 @@ export class MetaAgent {
       this.logger.info('Initializing direct MCP client connections...');
 
       // Initialize Infrastructure Agent MCP client
-      const infraTransport = new StreamableHTTPClientTransport(
-        new URL(this.config.agents.infrastructure.url)
-      );
-      const infraClient = new Client(
-        {
-          name: 'meta-agent-infrastructure-client',
-          version: '1.0.0'
-        }
-      );
-      await infraClient.connect(infraTransport);
+      const infraClient = new AgentCommunicationClient({
+        clientTimeout: this.config.agents.infrastructure.timeout || 30000,
+        clientName: 'meta-agent-infrastructure-client',
+        clientVersion: '1.0.0'
+      });
+      await infraClient.connect('infrastructure', this.config.agents.infrastructure.url);
       this.mcpClients.set('infrastructure', infraClient);
 
       // Initialize Observability Agent MCP client
-      const obsTransport = new StreamableHTTPClientTransport(
-        new URL(this.config.agents.observability.url)
-      );
-      const obsClient = new Client(
-        {
-          name: 'meta-agent-observability-client',
-          version: '1.0.0'
-        }
-      );
-      await obsClient.connect(obsTransport);
+      const obsClient = new AgentCommunicationClient({
+        clientTimeout: this.config.agents.observability.timeout || 30000,
+        clientName: 'meta-agent-observability-client',
+        clientVersion: '1.0.0'
+      });
+      await obsClient.connect('observability', this.config.agents.observability.url);
       this.mcpClients.set('observability', obsClient);
 
       this.logger.info('✅ Direct MCP client connections established');
@@ -1837,7 +1828,7 @@ export class MetaAgent {
       // Cleanup MCP clients
       for (const [agentId, client] of this.mcpClients.entries()) {
         try {
-          await client.close();
+          await client.disconnect();
           this.logger.debug(`Closed MCP client connection to ${agentId}`);
         } catch (error) {
           this.logger.warn({ agentId, error }, 'Failed to close MCP client connection');

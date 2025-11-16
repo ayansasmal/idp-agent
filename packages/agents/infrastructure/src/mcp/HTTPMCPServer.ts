@@ -217,11 +217,11 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: result.success
                 ? `✅ ${result.message}`
                 : `❌ ${result.message}`,
-              annotations: {
+              _meta: {
                 audience: ['user', 'assistant'],
                 priority: result.success ? 0.8 : 0.9,
                 executionTime: result.metadata?.executionTime || 0
@@ -242,7 +242,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Deploy application failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -280,11 +280,11 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: result.success
                 ? `📏 ${result.message}`
                 : `❌ ${result.message}`,
-              annotations: {
+              _meta: {
                 audience: ['user', 'assistant'],
                 priority: result.success ? 0.8 : 0.9,
                 executionTime: result.metadata?.executionTime || 0
@@ -304,7 +304,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Scale resource failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -341,11 +341,11 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: result.success
                 ? `📊 ${result.message}`
                 : `❌ ${result.message}`,
-              annotations: {
+              _meta: {
                 audience: ['user', 'assistant'],
                 priority: 0.7,
                 executionTime: result.metadata?.executionTime || 0
@@ -364,7 +364,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Get resource status failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -402,11 +402,11 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: result.success
                 ? `📝 ${result.message}`
                 : `❌ ${result.message}`,
-              annotations: {
+              _meta: {
                 audience: ['user', 'assistant'],
                 priority: 0.7,
                 executionTime: result.metadata?.executionTime || 0
@@ -425,7 +425,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Get resource logs failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
@@ -462,11 +462,11 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: result.success
                 ? `🤖 ${result.message}`
                 : `❌ ${result.message}`,
-              annotations: {
+              _meta: {
                 audience: ['user', 'assistant'],
                 priority: 0.8,
                 executionTime: result.metadata?.executionTime || 0
@@ -485,7 +485,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Generate kubectl command failed');
           return {
             content: [{
-              type: "text",
+              type: "text" as const,
               text: `Error: ${error.message}`
             }]
           };
