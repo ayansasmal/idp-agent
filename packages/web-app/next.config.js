@@ -26,6 +26,8 @@ const nextConfig = {
     // your project has type errors.
     ignoreBuildErrors: true,
   },
+  // Disable Pages Router temporarily during migration to App Router
+  useFileSystemPublicRoutes: false,
   // Use server-side rendering with standalone output
   output: 'standalone',
   // Skip Static Generation (SSG) for problematic pages
