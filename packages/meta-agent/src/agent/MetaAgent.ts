@@ -1755,11 +1755,6 @@ export class MetaAgent {
         {
           name: 'meta-agent-infrastructure-client',
           version: '1.0.0'
-        },
-        {
-          capabilities: {
-            tools: {}
-          }
         }
       );
       await infraClient.connect(infraTransport);
@@ -1773,11 +1768,6 @@ export class MetaAgent {
         {
           name: 'meta-agent-observability-client',
           version: '1.0.0'
-        },
-        {
-          capabilities: {
-            tools: {}
-          }
         }
       );
       await obsClient.connect(obsTransport);

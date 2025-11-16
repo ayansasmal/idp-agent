@@ -151,7 +151,7 @@ export class InfrastructureMCPServer {
           return {
             content: [
               {
-                type: 'text',
+                type: "text",
                 text: JSON.stringify({
                   success: false,
                   message: `Unknown tool: ${tool}`,
@@ -168,7 +168,7 @@ export class InfrastructureMCPServer {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify({
                 success: false,
                 message: `Missing required arguments: ${missing.join(', ')}`,
@@ -208,7 +208,7 @@ export class InfrastructureMCPServer {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2)
             }
           ]
@@ -218,7 +218,7 @@ export class InfrastructureMCPServer {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify({
                 success: false,
                 message: `Tool call failed: ${error.message}`,

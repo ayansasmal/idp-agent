@@ -11,6 +11,7 @@ This document describes the dependency updates performed on the AI-IDP codebase 
 | ModelContextProtocol SDK | Various | 1.21.1 | All agent packages |
 | Ollama client | Various | 0.6.3 | infrastructure, observability |
 | Kubernetes client | 1.3.0 | 1.0.0 | infrastructure |
+| Zod | Various (3.x/4.x) | 4.1.3 | All packages |
 
 ## Compatibility Fixes
 
@@ -18,10 +19,40 @@ This document describes the dependency updates performed on the AI-IDP codebase 
 
 The ModelContextProtocol SDK 1.21.1 changed its API structure for tool calls. The following changes were required to maintain compatibility:
 
-1. In both infrastructure and observability agents' `MCPServer.ts`:
+1. In both infrastructure and observability agents' `MCPServer.ts` and `HTTPMCPServer.ts`:
    - Changed `const { tool, arguments: args, context } = request.params` to `const { name: tool, arguments: args } = request.params`
+   - Updated request handler signatures from `async (request) => {...}` to `async (args, extra) => {...}`
    - Removed `context` parameter as it's no longer provided by the SDK
    - Updated context initialization to use only `args?.context`
+
+2. In mcp-client and meta-agent:
+   - Updated Client initialization to remove the capabilities parameter:
+   ```typescript
+   // Old format
+   const client = new Client(
+     {
+       name: 'meta-agent',
+       version: '1.0.0'
+     },
+     {
+       capabilities: {
+         tools: {}
+       }
+     }
+   );
+
+   // New format
+   const client = new Client(
+     {
+       name: 'meta-agent',
+       version: '1.0.0'
+     }
+   );
+   ```
+
+3. In all response handlers:
+   - Ensured `type` field in content objects uses a literal type (`"text"`) instead of a string variable (`'text'`)
+   - This change was required because the SDK now enforces strict content type checking
 
 ### Next.js App Router Compatibility
 
@@ -44,6 +75,12 @@ Created proper error and loading handling for Next.js 16:
    - Removed problematic include patterns that referenced external directories
    - Fixed paths for proper module resolution
 
+### Zod Version Standardization
+
+1. Standardized on Zod 4.1.3 across all packages:
+   - Added zod to the root package.json to ensure consistent versioning
+   - Updated packages that were using older versions (3.x) to use the latest version
+
 ## Testing Results
 
 1. Type checking passes for all packages using:
@@ -51,15 +88,37 @@ Created proper error and loading handling for Next.js 16:
 npm run type-check
 ```
 
-2. Build process has been tested to confirm compatibility with the updated dependencies.
-
 ## Known Issues
 
 1. There is a deprecation warning related to `url.parse()` that should be addressed in a future update.
-2. The build process may need additional configuration to handle the updated MCP SDK completely.
 
-## Next Steps
+2. Build Process Errors:
+   - The NX build system is having issues with the pruned lockfile generation
+   - Error message: "Following packages could not be mapped to the NPM lockfile: npm:zod@4.1.3"
+   - HTTPMCPServer type errors in both agents with content types (need to update `annotations` handling)
 
-1. Further testing is needed to ensure runtime compatibility with all updated dependencies
-2. Consider updating to the new WHATWG URL API to address the deprecation warning
-3. Evaluate any performance implications of the Next.js 16 upgrade
+3. Integration Issues:
+   - The updated MCP SDK has changed some core API interfaces that require more extensive refactoring
+   - The HTTPMCPServer implementations need to be updated to match the new SDK's tool handler signatures
+   - Web app build fails due to Next.js App Router configuration issues
+
+## Recommendations for Next Steps
+
+1. Continue Refactoring:
+   - Update the HTTP MCP Servers to fully support the new MCP SDK API structure
+   - Refactor tool handler signatures and response formatting to match SDK requirements
+
+2. Fix Build Process:
+   - Clean up node_modules and reinstall dependencies to address lockfile issues
+   - Consider using a more targeted build approach (building packages individually)
+   - Add explicit type assertions where needed to handle MCP SDK type changes
+
+3. Address Technical Debt:
+   - Update to the new WHATWG URL API to fix the url.parse() deprecation warnings
+   - Standardize on a single zod version across all packages
+   - Create a dedicated dependency management strategy for the monorepo
+
+4. Testing Strategy:
+   - Implement focused unit tests for the MCP protocol interaction
+   - Create integration tests for the agent communication layer
+   - Set up automated tests for the HTTP MCP server implementations

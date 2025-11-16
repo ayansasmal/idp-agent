@@ -75,7 +75,8 @@ export class HTTPMCPServer {
         title: 'Analyze Metrics',
         description: 'Analyze metrics using SLM-powered pattern recognition and anomaly detection'
       },
-      async (request) => {
+      async (args, extra) => {
+        const request = { arguments: args };
         try {
           const args = request.arguments || {};
           const context: ConversationContext = {
@@ -97,7 +98,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -105,7 +106,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Analyze metrics failed');
           return {
             content: [{
-              type: 'text', 
+              type: "text", 
               text: `Error: ${error.message}`
             }]
           };
@@ -120,9 +121,9 @@ export class HTTPMCPServer {
         title: 'Analyze Incident',
         description: 'Perform SLM-powered incident analysis and root cause identification'
       },
-      async (request) => {
+      async (args, extra) => {
         try {
-          const args = request.arguments || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -142,7 +143,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -150,7 +151,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Analyze incident failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -165,9 +166,9 @@ export class HTTPMCPServer {
         title: 'Analyze Logs',
         description: 'Intelligent log analysis with SLM-powered pattern recognition'
       },
-      async (request) => {
+      async (args, extra) => {
         try {
-          const args = request.arguments || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -188,7 +189,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -196,7 +197,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Analyze logs failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -211,9 +212,9 @@ export class HTTPMCPServer {
         title: 'Create Dashboard',
         description: 'Generate intelligent dashboards based on SLM analysis of requirements'
       },
-      async (request) => {
+      async (args, extra) => {
         try {
-          const args = request.arguments || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -234,7 +235,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -242,7 +243,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Create dashboard failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -257,9 +258,9 @@ export class HTTPMCPServer {
         title: 'Configure Alerts',
         description: 'Set up intelligent alerting rules with SLM-optimized thresholds'
       },
-      async (request) => {
+      async (args, extra) => {
         try {
-          const args = request.arguments || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -280,7 +281,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2)
             }]
           };
@@ -288,7 +289,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Configure alerts failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };

@@ -187,17 +187,15 @@ export class HTTPMCPServer {
         title: 'Deploy Application',
         description: 'Deploy applications to Kubernetes with comprehensive validation'
       },
-      async (toolArgs, request) => {
+      async (args, extra) => {
         try {
           this.logger.debug({
-            toolArgs,
-            toolArgsKeys: Object.keys(toolArgs || {}),
-            request,
-            requestKeys: Object.keys(request || {}),
-            requestArguments: (request as any)?.arguments,
-            fullRequest: JSON.stringify(request || {}, null, 2)
+            args,
+            argsKeys: Object.keys(args || {}),
+            extra,
+            extraKeys: Object.keys(extra || {}),
+            fullRequest: JSON.stringify(extra || {}, null, 2)
           }, 'MCP request received');
-          const args = toolArgs || {};
           this.logger.debug({
             args,
             argKeys: Object.keys(args),
@@ -219,7 +217,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: result.success
                 ? `✅ ${result.message}`
                 : `❌ ${result.message}`,
@@ -244,7 +242,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Deploy application failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -259,9 +257,9 @@ export class HTTPMCPServer {
         title: 'Scale Resource',
         description: 'Scale Kubernetes resources with monitoring and validation'
       },
-      async (toolArgs, request) => {
+      async (args, extra) => {
         try {
-          const args = toolArgs || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -282,7 +280,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: result.success
                 ? `📏 ${result.message}`
                 : `❌ ${result.message}`,
@@ -306,7 +304,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Scale resource failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -321,9 +319,9 @@ export class HTTPMCPServer {
         title: 'Get Resource Status',
         description: 'Get comprehensive status of Kubernetes resources'
       },
-      async (toolArgs, request) => {
+      async (args, extra) => {
         try {
-          const args = toolArgs || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -343,7 +341,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: result.success
                 ? `📊 ${result.message}`
                 : `❌ ${result.message}`,
@@ -366,7 +364,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Get resource status failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -381,9 +379,9 @@ export class HTTPMCPServer {
         title: 'Get Resource Logs',
         description: 'Retrieve and analyze Kubernetes pod logs'
       },
-      async (toolArgs, request) => {
+      async (args, extra) => {
         try {
-          const args = toolArgs || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -404,7 +402,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: result.success
                 ? `📝 ${result.message}`
                 : `❌ ${result.message}`,
@@ -427,7 +425,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Get resource logs failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };
@@ -442,9 +440,9 @@ export class HTTPMCPServer {
         title: 'Generate Kubectl Command',
         description: 'Generate kubectl commands from natural language using AI'
       },
-      async (toolArgs, request) => {
+      async (args, extra) => {
         try {
-          const args = toolArgs || {};
+          args = args || {};
           const context: ConversationContext = {
             conversationId: randomUUID(),
             userId: 'http-mcp-client',
@@ -464,7 +462,7 @@ export class HTTPMCPServer {
 
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: result.success
                 ? `🤖 ${result.message}`
                 : `❌ ${result.message}`,
@@ -487,7 +485,7 @@ export class HTTPMCPServer {
           this.logger.error({ error: error.message }, '❌ Generate kubectl command failed');
           return {
             content: [{
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`
             }]
           };

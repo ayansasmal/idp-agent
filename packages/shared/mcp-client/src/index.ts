@@ -174,11 +174,6 @@ export class MCPAgentClient {
         {
           name: 'meta-agent',
           version: '1.0.0'
-        },
-        {
-          capabilities: {
-            tools: {}
-          }
         }
       );
 
@@ -281,11 +276,6 @@ export class MCPAgentClient {
         {
           name: 'meta-agent',
           version: '1.0.0'
-        },
-        {
-          capabilities: {
-            tools: {}
-          }
         }
       );
 

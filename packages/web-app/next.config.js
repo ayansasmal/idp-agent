@@ -38,7 +38,7 @@ const nextConfig = {
   // Specify which pages to prerender
   exportPathMap: async function () {
     return {
-      '/': { page: '/' },
+      '/': { page: '/' }
       // Only include specific pages for static generation
       // Exclude error pages and dynamic routes
     }
