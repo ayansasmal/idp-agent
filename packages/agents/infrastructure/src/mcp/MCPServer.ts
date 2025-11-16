@@ -82,12 +82,12 @@ export class InfrastructureMCPServer {
 
     // Handle tool calls (request object pattern)
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { tool, arguments: args, context } = request.params;
+      const { name: tool, arguments: args } = request.params;
 
       // Validate required arguments for each tool
       let missing: string[] = [];
       let requestObj: any = {};
-      const ctx = context || args?.context || {
+      const ctx = args?.context || {
         conversationId: `mcp-${Date.now()}`,
         userId: 'mcp-user',
         sessionId: `mcp-session-${Date.now()}`,

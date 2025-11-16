@@ -19,7 +19,7 @@
     "@ai-idp/qdrant-client": "file:../shared/qdrant-client",
     "@ai-idp/types": "file:../shared/types",
     "@ai-idp/utils": "file:../shared/utils",
-    "@anthropic-ai/sdk": "^0.60.0",
+    "@anthropic-ai/sdk": "^0.68.0",
     "@fastify/cors": "^11.1.0",
     "@fastify/websocket": "^11.2.0",
     "fastify": "^5.5.0",

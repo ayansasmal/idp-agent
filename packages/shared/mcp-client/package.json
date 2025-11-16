@@ -12,7 +12,7 @@
   "dependencies": {
     "@ai-idp/types": "file:../types",
     "@ai-idp/utils": "file:../utils",
-    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@modelcontextprotocol/sdk": "^1.21.1",
     "vscode-jsonrpc": "^8.2.1",
     "ws": "^8.18.3"
   },

@@ -12,14 +12,14 @@
   "dependencies": {
     "@ai-idp/meta-agent": "file:../meta-agent",
     "@ai-idp/types": "file:../shared/types",
-    "@anthropic-ai/sdk": "^0.60.0",
+    "@anthropic-ai/sdk": "^0.68.0",
     "@aws-sdk/client-dynamodb": "^3.876.0",
     "@aws-sdk/lib-dynamodb": "^3.876.0",
     "@heroicons/react": "^2.2.0",
     "@tanstack/react-query": "^5.85.5",
     "ai": "^5.0.24",
     "nanoid": "^5.1.5",
-    "next": "^15.5.0",
+    "next": "^16.0.0",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "react-hook-form": "^7.62.0",
@@ -36,7 +36,7 @@
     "@types/react-dom": "^19",
     "concurrently": "^9.2.1",
     "eslint": "^9",
-    "eslint-config-next": "^15.5.0",
+    "eslint-config-next": "^16.0.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
