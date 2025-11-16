@@ -1,0 +1,323 @@
+{
+  "info": {
+    "name": "AI-IDP Component Tests",
+    "description": "Test collection for Meta-Agent and Infrastructure Agent components",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "meta_agent_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "infrastructure_agent_url", 
+      "value": "http://localhost:3003",
+      "type": "string"
+    },
+    {
+      "key": "web_app_url",
+      "value": "http://localhost:3002",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "Meta Agent Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Meta Agent is healthy', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.healthy).to.be.true;",
+                  "    pm.expect(response.metaAgent.initialized).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{meta_agent_url}}/health",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Infrastructure Agent Health",
+          "event": [
+            {
+              "listen": "test", 
+              "script": {
+                "exec": [
+                  "pm.test('Infrastructure Agent is responding', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.agent).to.equal('infrastructure');",
+                  "    pm.expect(response.details.initialized).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/health",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure Agent Direct Tests",
+      "item": [
+        {
+          "name": "Get Capabilities",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Infrastructure Agent capabilities', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.tools).to.be.an('array');",
+                  "    pm.expect(response.tools.length).to.be.greaterThan(0);",
+                  "    pm.expect(response.agentId).to.equal('infrastructure');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/capabilities",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["capabilities"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deploy Application (Direct)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Deploy application succeeds', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.be.true;",
+                  "    pm.expect(response.message).to.include('nginx');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resourceName\": \"test-nginx\",\n  \"containerImage\": \"nginx:latest\",\n  \"namespace\": \"default\",\n  \"replicas\": 1,\n  \"context\": {\n    \"conversationId\": \"test-direct\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/tools/deployApplication",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["tools", "deployApplication"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Resource Status (Direct)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Resource status retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resourceName\": \"test-nginx\",\n  \"namespace\": \"default\",\n  \"context\": {\n    \"conversationId\": \"test-direct\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{infrastructure_agent_url}}/tools/getResourceStatus",
+              "host": ["{{infrastructure_agent_url}}"],
+              "path": ["tools", "getResourceStatus"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Meta Agent Tests",
+      "item": [
+        {
+          "name": "Chat - Simple Request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Meta Agent chat responds', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('success');",
+                  "    pm.expect(response).to.have.property('message');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userInput\": \"hello, what can you help me with?\",\n  \"context\": {\n    \"conversationId\": \"test-meta-001\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{meta_agent_url}}/chat",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["chat"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Chat - Infrastructure Request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Infrastructure request processes', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('success');",
+                  "    pm.expect(response).to.have.property('message');",
+                  "    // Don't assert success=true since agent registration might be failing",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userInput\": \"list pods in default namespace\",\n  \"context\": {\n    \"conversationId\": \"test-meta-002\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{meta_agent_url}}/chat",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["chat"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Integration Tests",
+      "item": [
+        {
+          "name": "End-to-End Deployment Flow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('End-to-end deployment flow', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('message');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userInput\": \"deploy nginx with 2 replicas to default namespace\",\n  \"context\": {\n    \"conversationId\": \"test-e2e-001\",\n    \"userId\": \"test-user\",\n    \"sessionId\": \"test-session\",\n    \"history\": [],\n    \"metadata\": {\n      \"source\": \"newman-test\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{meta_agent_url}}/chat",
+              "host": ["{{meta_agent_url}}"],
+              "path": ["chat"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

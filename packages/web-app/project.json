@@ -1,0 +1,52 @@
+{
+  "name": "web-app",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/web-app",
+  "projectType": "application",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project web-app --web",
+  "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "root": "packages/web-app",
+        "outputPath": "dist/packages/web-app"
+      },
+      "configurations": {
+        "development": {
+          "outputPath": "packages/web-app"
+        },
+        "production": {}
+      }
+    },
+    "serve": {
+      "executor": "@nx/next:server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "web-app:build",
+        "dev": true
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "web-app:build:development",
+          "dev": true
+        },
+        "production": {
+          "buildTarget": "web-app:build:production",
+          "dev": false
+        }
+      }
+    },
+    "custom-build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "node packages/web-app/build.js"
+        ],
+        "cwd": "."
+      }
+    }
+  }
+}

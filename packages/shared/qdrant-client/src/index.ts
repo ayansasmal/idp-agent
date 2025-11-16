@@ -1,0 +1,729 @@
+import { QdrantClient } from '@qdrant/js-client-rest';
+import { pipeline, Pipeline } from '@xenova/transformers';
+import { z } from 'zod';
+import { Logger } from 'pino';
+import type {
+  ContextVector,
+  VectorSearchResult,
+  ContextRetrievalQuery,
+  QdrantConfig,
+  ConversationContext,
+  AgentResponse
+} from '@ai-idp/types';
+
+/**
+ * Qdrant configuration schema for type-safe validation
+ * 
+ * Validates connection settings, collection configuration, and performance tuning
+ * parameters for the AI-IDP vector database integration.
+ */
+const QdrantConfigSchema = z.object({
+  /** Qdrant server URL */
+  url: z.string().url(),
+  /** Optional API key for authentication */
+  apiKey: z.string().optional(),
+  /** Vector collection name for context storage */
+  collectionName: z.string().default('agent_context'),
+  /** Vector dimension size (Xenova/all-MiniLM-L6-v2: 384) */
+  vectorSize: z.number().default(384),
+  /** Request timeout in milliseconds */
+  timeout: z.number().default(30000)
+});
+
+/**
+ * Context payload validation schema
+ * 
+ * Ensures consistent structure for stored context vectors across all
+ * agent types and operations.
+ */
+const ContextPayloadSchema = z.object({
+  /** Type of context being stored */
+  type: z.enum(['conversation', 'decision', 'execution', 'pattern']),
+  /** Agent that generated this context */
+  agent: z.string(),
+  /** ISO timestamp when context was created */
+  timestamp: z.string(),
+  /** Text content for semantic search */
+  content: z.string(),
+  /** Additional metadata for filtering and retrieval */
+  metadata: z.record(z.string(), z.any())
+});
+
+/**
+ * Qdrant Vector Database Client for AI-IDP Context Management
+ * 
+ * Provides intelligent context storage and retrieval using semantic search to enable
+ * cross-agent learning, pattern recognition, and decision support. The client manages
+ * conversation history, agent decisions, execution patterns, and contextual memory
+ * to improve AI-IDP platform intelligence over time.
+ * 
+ * **Key Features:**
+ * - **Semantic Context Storage**: OpenAI embeddings for intelligent context retrieval
+ * - **Cross-Agent Learning**: Shared memory and patterns across all focused agents  
+ * - **Decision History**: Historical decision context for approval workflow intelligence
+ * - **Pattern Recognition**: Execution pattern storage for proactive recommendations
+ * - **Retention Management**: Automated cleanup with configurable retention policies
+ * - **Health Monitoring**: Connection health checks and performance monitoring
+ * 
+ * @class QdrantContextClient
+ * @since 1.0.0
+ * @version 1.1.0
+ * 
+ * @example Basic Setup and Usage
+ * ```typescript
+ * import { QdrantContextClient } from '@ai-idp/qdrant-client';
+ * 
+ * const qdrantClient = new QdrantContextClient(
+ *   {
+ *     url: 'https://your-qdrant-cluster.qdrant.io',
+ *     apiKey: 'your-qdrant-api-key',
+ *     collectionName: 'ai-idp-context',
+ *     vectorSize: 1536
+ *   },
+ *   'your-openai-api-key',
+ *   logger
+ * );
+ * 
+ * await qdrantClient.initialize();
+ * 
+ * // Store conversation context
+ * await qdrantClient.storeConversationContext(
+ *   conversationId,
+ *   conversationContext,
+ *   agentResponse
+ * );
+ * 
+ * // Retrieve similar context
+ * const similarContext = await qdrantClient.retrieveContext({
+ *   query: 'deploy nginx to production',
+ *   type: 'conversation',
+ *   limit: 5
+ * });
+ * ```
+ * 
+ * @example Pattern Learning and Decision Support
+ * ```typescript
+ * // Store execution patterns for learning
+ * await qdrantClient.storeExecutionPattern(
+ *   'deploy-pattern-001',
+ *   'infrastructure',
+ *   'deploy nginx with 3 replicas to production',
+ *   { namespace: 'prod', replicas: 3 },
+ *   true
+ * );
+ * 
+ * // Find similar patterns for recommendations
+ * const similarPatterns = await qdrantClient.findSimilarPatterns(
+ *   'deploy redis to staging',
+ *   'infrastructure',
+ *   3
+ * );
+ * 
+ * // Get historical decisions for approval workflows
+ * const decisions = await qdrantClient.getHistoricalDecisions(
+ *   'production deployment request',
+ *   'security',
+ *   5
+ * );
+ * ```
+ */
+export class QdrantContextClient {
+  private qdrant: QdrantClient;
+  private embedder: any = null; // Use any type for Xenova pipeline to avoid TypeScript issues
+  private config: z.infer<typeof QdrantConfigSchema>;
+  private logger: Logger;
+
+  /**
+   * Create a new Qdrant context client with local embeddings
+   * 
+   * Initializes connection to Qdrant vector database and sets up local embedding
+   * generation using @xenova/transformers. The client handles all context storage 
+   * and retrieval operations for the AI-IDP multi-agent system.
+   * 
+   * @param config - Qdrant connection and collection configuration
+   * @param logger - Pino logger instance for structured logging
+   * 
+   * @since 1.0.0
+   * @version 2.0.0 - Replaced OpenAI with local embeddings using @xenova/transformers
+   */
+  constructor(config: QdrantConfig, logger: Logger) {
+    this.config = QdrantConfigSchema.parse(config);
+    this.logger = logger;
+
+    this.qdrant = new QdrantClient({
+      url: this.config.url,
+      apiKey: this.config.apiKey,
+    });
+
+    this.logger.info({}, 'QdrantContextClient initialized with local embeddings');
+  }
+
+  /**
+   * Initialize the Qdrant collection and local embedding pipeline
+   * 
+   * Sets up the vector collection with proper configuration for semantic search using
+   * local embeddings. Loads the embedding model and creates the collection if it doesn't exist.
+   * Should be called once during application startup.
+   * 
+   * @returns Promise resolving when initialization is complete
+   * @throws Error if collection creation, model loading, or verification fails
+   * 
+   * @example
+   * ```typescript
+   * await qdrantClient.initialize();
+   * console.log('Qdrant collection and local embeddings ready for context storage');
+   * ```
+   * 
+   * @since 1.0.0
+   * @version 2.0.0 - Added local embedding model initialization
+   */
+  async initialize(): Promise<void> {
+    try {
+      this.logger.info(`Initializing Qdrant collection and local embeddings: ${this.config.collectionName}`);
+
+      // Initialize local embedding pipeline
+      this.logger.info({}, 'Loading local embedding model (Xenova/all-MiniLM-L6-v2)...');
+      this.embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      this.logger.info({}, 'Local embedding model loaded successfully');
+
+      // Check if collection exists
+      const collections = await this.qdrant.getCollections();
+      const collectionExists = collections.collections.some(
+        collection => collection.name === this.config.collectionName
+      );
+
+      if (!collectionExists) {
+        // Create collection with vector configuration for MiniLM-L6-v2 (384 dimensions)
+        await this.qdrant.createCollection(this.config.collectionName, {
+          vectors: {
+            size: 384, // MiniLM-L6-v2 produces 384-dimensional vectors
+            distance: 'Cosine'
+          },
+          optimizers_config: {
+            default_segment_number: 2
+          },
+          replication_factor: 1
+        });
+        this.logger.info(`Created Qdrant collection: ${this.config.collectionName} (384 dimensions)`);
+      } else {
+        this.logger.info(`Qdrant collection already exists: ${this.config.collectionName}`);
+      }
+    } catch (error) {
+      this.logger.error(error, 'Failed to initialize Qdrant collection or embedding model');
+      throw error;
+    }
+  }
+
+  /**
+   * Generate embedding for text using local Xenova/all-MiniLM-L6-v2 model
+   * 
+   * Creates semantic vector representations of text content for storage and
+   * similarity search in Qdrant. Uses local transformers model which produces
+   * 384-dimensional vectors optimized for semantic similarity and privacy.
+   * 
+   * @param text - Text content to convert to embedding vector
+   * @returns Promise resolving to 384-dimensional embedding vector
+   * @throws Error if model not loaded or embedding generation fails
+   * 
+   * @private
+   * @since 1.0.0
+   * @version 2.0.0 - Replaced OpenAI with local Xenova/all-MiniLM-L6-v2
+   */
+  private async generateEmbedding(text: string): Promise<number[]> {
+    if (!this.embedder) {
+      throw new Error('Local embedding model not loaded. Call initialize() first.');
+    }
+
+    try {
+      this.logger.debug({ textLength: text.length }, 'Generating local embedding');
+
+      // Generate embedding using local model
+      const output = await this.embedder(text, {
+        pooling: 'mean',
+        normalize: true
+      });
+
+      // Convert tensor to array (handle different output formats)
+      const embedding: number[] = Array.isArray(output.data)
+        ? (output.data as number[])
+        : Array.from(output.data as ArrayLike<number>);
+
+      this.logger.debug({ embeddingSize: embedding.length }, 'Local embedding generated successfully');
+
+      return embedding;
+    } catch (error) {
+      this.logger.error(error, 'Failed to generate local embedding');
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a valid Qdrant point ID from a string
+   * Qdrant requires point IDs to be either unsigned integers or UUIDs
+   * This method converts string identifiers to valid UUIDs using a deterministic hash
+   */
+  private generateValidPointId(input: string): string {
+    // Import crypto at runtime to avoid issues
+    const crypto = require('crypto');
+    
+    // Generate a deterministic UUID v5 based on the input string
+    // Using a fixed namespace UUID to ensure consistency
+    const namespace = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'; // Standard test UUID
+    
+    try {
+      // Create MD5 hash of namespace + input for UUID v5 generation
+      const hash = crypto.createHash('md5');
+      const namespaceBytes = namespace.replace(/-/g, '');
+      hash.update(Buffer.from(namespaceBytes, 'hex'));
+      hash.update(input, 'utf8');
+      
+      const hashBytes = hash.digest();
+      
+      // Set version (4 bits) and variant (2 bits) for UUID v5
+      hashBytes[6] = (hashBytes[6] & 0x0f) | 0x50; // Version 5
+      hashBytes[8] = (hashBytes[8] & 0x3f) | 0x80; // Variant bits
+      
+      // Format as UUID string
+      const hex = hashBytes.toString('hex');
+      const uuid = [
+        hex.substr(0, 8),
+        hex.substr(8, 4),
+        hex.substr(12, 4),
+        hex.substr(16, 4),
+        hex.substr(20, 12)
+      ].join('-');
+      
+      return uuid;
+    } catch (error) {
+      this.logger.warn({ input, error }, 'Failed to generate deterministic UUID, using random UUID');
+      // Fallback to crypto.randomUUID if available, otherwise generate manually
+      return crypto.randomUUID ? crypto.randomUUID() : this.generateFallbackUUID();
+    }
+  }
+
+  /**
+   * Fallback UUID generation for environments without crypto.randomUUID
+   */
+  private generateFallbackUUID(): string {
+    const crypto = require('crypto');
+    const randomBytes = crypto.randomBytes(16);
+    
+    // Set version (4) and variant bits
+    randomBytes[6] = (randomBytes[6] & 0x0f) | 0x40;
+    randomBytes[8] = (randomBytes[8] & 0x3f) | 0x80;
+    
+    const hex = randomBytes.toString('hex');
+    return [
+      hex.substr(0, 8),
+      hex.substr(8, 4),
+      hex.substr(12, 4),
+      hex.substr(16, 4),
+      hex.substr(20, 12)
+    ].join('-');
+  }
+
+  /**
+   * Store conversation context in Qdrant for cross-agent learning and memory
+   * 
+   * Stores conversation interactions as semantic vectors enabling future retrieval
+   * of similar conversations, patterns, and decision contexts. The stored context
+   * includes user inputs, agent responses, execution metadata, and success indicators.
+   * 
+   * @param conversationId - Unique identifier for the conversation
+   * @param context - Complete conversation context with history and metadata
+   * @param agentResponse - Agent's response with execution details
+   * @returns Promise resolving when context is stored successfully
+   * @throws Error if embedding generation or vector storage fails
+   * 
+   * @example
+   * ```typescript
+   * await qdrantClient.storeConversationContext(
+   *   'conv-user123-001',
+   *   conversationContext,
+   *   {
+   *     agentId: 'infrastructure',
+   *     success: true,
+   *     message: 'Deployed nginx successfully',
+   *     metadata: { action: 'deploy', executionTime: 2500 }
+   *   }
+   * );
+   * ```
+   * 
+   * @since 1.0.0
+   */
+  async storeConversationContext(
+    conversationId: string,
+    context: ConversationContext,
+    agentResponse: AgentResponse
+  ): Promise<void> {
+    try {
+      // Create contextual content for embedding
+      const contextContent = `
+        Conversation: ${conversationId}
+        User: ${context.history[context.history.length - 1]?.content || ''}
+        Agent: ${agentResponse.agentId}
+        Action: ${agentResponse.metadata.action}
+        Response: ${agentResponse.message}
+        Success: ${agentResponse.success}
+      `.trim();
+
+      const embedding = await this.generateEmbedding(contextContent);
+
+      const contextVector: ContextVector = {
+        id: this.generateValidPointId(`conv_${conversationId}_${Date.now()}`),
+        vector: embedding,
+        payload: {
+          type: 'conversation',
+          agent: agentResponse.agentId,
+          timestamp: new Date().toISOString(),
+          content: contextContent,
+          metadata: {
+            conversationId,
+            userId: context.userId,
+            sessionId: context.sessionId,
+            action: agentResponse.metadata.action,
+            success: agentResponse.success,
+            executionTime: agentResponse.metadata.executionTime,
+            ...agentResponse.metadata
+          }
+        }
+      };
+
+      await this.qdrant.upsert(this.config.collectionName, {
+        wait: true,
+        points: [
+          {
+            id: contextVector.id,
+            vector: contextVector.vector,
+            payload: contextVector.payload
+          }
+        ]
+      });
+
+      this.logger.info({
+        id: contextVector.id,
+        agent: agentResponse.agentId,
+        conversationId
+      }, 'Stored conversation context');
+    } catch (error) {
+      this.logger.error(error, 'Failed to store conversation context');
+      throw error;
+    }
+  }
+
+  /**
+   * Store agent decision context
+   */
+  async storeDecisionContext(
+    decisionId: string,
+    agent: string,
+    decision: string,
+    reasoning: string,
+    outcome: any
+  ): Promise<void> {
+    try {
+      const decisionContent = `
+        Decision: ${decision}
+        Reasoning: ${reasoning}
+        Outcome: ${JSON.stringify(outcome)}
+        Agent: ${agent}
+      `.trim();
+
+      const embedding = await this.generateEmbedding(decisionContent);
+
+      const contextVector: ContextVector = {
+        id: this.generateValidPointId(`decision_${decisionId}`),
+        vector: embedding,
+        payload: {
+          type: 'decision',
+          agent: agent,
+          timestamp: new Date().toISOString(),
+          content: decisionContent,
+          metadata: {
+            decisionId,
+            decision,
+            reasoning,
+            outcome
+          }
+        }
+      };
+
+      await this.qdrant.upsert(this.config.collectionName, {
+        wait: true,
+        points: [{
+          id: contextVector.id,
+          vector: contextVector.vector,
+          payload: contextVector.payload
+        }]
+      });
+
+      this.logger.info({ id: contextVector.id, agent, decisionId }, 'Stored decision context');
+    } catch (error) {
+      this.logger.error(error, 'Failed to store decision context');
+      throw error;
+    }
+  }
+
+  /**
+   * Store execution pattern for learning
+   */
+  async storeExecutionPattern(
+    patternId: string,
+    agent: string,
+    pattern: string,
+    context: Record<string, any>,
+    success: boolean
+  ): Promise<void> {
+    try {
+      const patternContent = `
+        Pattern: ${pattern}
+        Agent: ${agent}
+        Success: ${success}
+        Context: ${JSON.stringify(context)}
+      `.trim();
+
+      const embedding = await this.generateEmbedding(patternContent);
+
+      const contextVector: ContextVector = {
+        id: this.generateValidPointId(`pattern_${patternId}`),
+        vector: embedding,
+        payload: {
+          type: 'pattern',
+          agent: agent,
+          timestamp: new Date().toISOString(),
+          content: patternContent,
+          metadata: {
+            patternId,
+            pattern,
+            context,
+            success
+          }
+        }
+      };
+
+      await this.qdrant.upsert(this.config.collectionName, {
+        wait: true,
+        points: [{
+          id: contextVector.id,
+          vector: contextVector.vector,
+          payload: contextVector.payload
+        }]
+      });
+
+      this.logger.info({ id: contextVector.id, agent, patternId }, 'Stored execution pattern');
+    } catch (error) {
+      this.logger.error(error, 'Failed to store execution pattern');
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve relevant context using semantic similarity search
+   * 
+   * Performs semantic search across stored context vectors to find relevant
+   * historical conversations, decisions, and patterns. Uses cosine similarity
+   * with configurable score thresholds and filtering options.
+   * 
+   * @param query - Context retrieval query with search parameters
+   * @returns Promise resolving to array of matching context results with similarity scores
+   * @throws Error if embedding generation or vector search fails
+   * 
+   * @example Basic Context Search
+   * ```typescript
+   * const results = await qdrantClient.retrieveContext({
+   *   query: 'deploy nginx to production environment',
+   *   type: 'conversation',
+   *   limit: 5,
+   *   scoreThreshold: 0.8
+   * });
+   * 
+   * results.forEach(result => {
+   *   console.log(`Score: ${result.score}, Agent: ${result.payload.agent}`);
+   * });
+   * ```
+   * 
+   * @example Agent-Specific Search
+   * ```typescript
+   * const infrastructureContext = await qdrantClient.retrieveContext({
+   *   query: 'scaling kubernetes deployment issues',
+   *   agent: 'infrastructure',
+   *   type: 'pattern',
+   *   limit: 3
+   * });
+   * ```
+   * 
+   * @since 1.0.0
+   */
+  async retrieveContext(query: ContextRetrievalQuery): Promise<VectorSearchResult[]> {
+    try {
+      this.logger.info({ query: query.query.substring(0, 100) }, 'Retrieving context');
+
+      const queryEmbedding = await this.generateEmbedding(query.query);
+
+      // Build filter conditions
+      const filter: any = {};
+      if (query.type) {
+        filter.type = query.type;
+      }
+      if (query.agent) {
+        filter.agent = query.agent;
+      }
+
+      const searchResult = await this.qdrant.search(this.config.collectionName, {
+        vector: queryEmbedding,
+        limit: query.limit || 5,
+        score_threshold: query.scoreThreshold || 0.7,
+        filter: Object.keys(filter).length > 0 ? { must: [{ key: 'payload', match: filter }] } : undefined,
+        with_payload: true
+      });
+
+      const results: VectorSearchResult[] = searchResult.map(point => ({
+        id: point.id.toString(),
+        score: point.score || 0,
+        payload: point.payload as ContextVector['payload']
+      }));
+
+      this.logger.info({
+        resultCount: results.length,
+        topScore: results[0]?.score
+      }, 'Retrieved context results');
+
+      return results;
+    } catch (error) {
+      this.logger.error(error, 'Failed to retrieve context');
+      throw error;
+    }
+  }
+
+  /**
+   * Find similar patterns for learning and recommendations
+   */
+  async findSimilarPatterns(
+    pattern: string,
+    agent?: string,
+    limit: number = 3
+  ): Promise<VectorSearchResult[]> {
+    return this.retrieveContext({
+      query: pattern,
+      type: 'pattern',
+      agent,
+      limit,
+      scoreThreshold: 0.8
+    });
+  }
+
+  /**
+   * Get historical decisions for approval workflows
+   */
+  async getHistoricalDecisions(
+    decisionContext: string,
+    agent?: string,
+    limit: number = 5
+  ): Promise<VectorSearchResult[]> {
+    return this.retrieveContext({
+      query: decisionContext,
+      type: 'decision',
+      agent,
+      limit,
+      scoreThreshold: 0.75
+    });
+  }
+
+  /**
+   * Perform health check for Qdrant connection and collection status
+   * 
+   * Verifies connectivity to Qdrant cluster and validates that the required
+   * collection exists and is accessible. Returns detailed status information
+   * for monitoring and debugging.
+   * 
+   * @returns Promise resolving to health status with connection details
+   * 
+   * @example
+   * ```typescript
+   * const health = await qdrantClient.healthCheck();
+   * 
+   * if (health.healthy) {
+   *   console.log('Qdrant connection healthy');
+   * } else {
+   *   console.error('Qdrant connection failed:', health.details);
+   * }
+   * ```
+   * 
+   * @since 1.0.0
+   */
+  async healthCheck(): Promise<{ healthy: boolean; details: any }> {
+    try {
+      const collections = await this.qdrant.getCollections();
+      const collectionExists = collections.collections.some(
+        collection => collection.name === this.config.collectionName
+      );
+
+      return {
+        healthy: collectionExists,
+        details: {
+          url: this.config.url,
+          collectionName: this.config.collectionName,
+          collectionExists,
+          collections: collections.collections.length
+        }
+      };
+    } catch (error) {
+      this.logger.error(error, 'Qdrant health check failed');
+      return {
+        healthy: false,
+        details: { error: error.message }
+      };
+    }
+  }
+
+  /**
+   * Clean up old context data based on retention policy
+   * 
+   * Removes context vectors older than the specified retention period to
+   * manage storage costs and maintain performance. Should be run periodically
+   * as part of maintenance routines.
+   * 
+   * @param retentionDays - Number of days to retain context data (default: 30)
+   * @returns Promise resolving to number of records deleted
+   * @throws Error if deletion operation fails
+   * 
+   * @example
+   * ```typescript
+   * // Clean up context older than 60 days
+   * const deletedCount = await qdrantClient.cleanupOldContext(60);
+   * console.log(`Cleaned up ${deletedCount} old context records`);
+   * ```
+   * 
+   * @since 1.0.0
+   */
+  async cleanupOldContext(retentionDays: number = 30): Promise<number> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+      // Note: This is a simplified cleanup. In production, you'd want batch processing
+      const result = await this.qdrant.delete(this.config.collectionName, {
+        filter: {
+          must: [{
+            key: 'timestamp',
+            range: {
+              lt: cutoffDate.toISOString()
+            }
+          }]
+        }
+      });
+
+      this.logger.info({
+        retentionDays,
+        cutoffDate: cutoffDate.toISOString()
+      }, 'Cleaned up old context data');
+
+      return 0; // Qdrant doesn't return count in delete operation
+    } catch (error) {
+      this.logger.error(error, 'Failed to cleanup old context');
+      throw error;
+    }
+  }
+}
+
+export * from '@ai-idp/types';
